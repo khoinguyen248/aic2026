@@ -1,8 +1,7 @@
-# Hướng dẫn phát triển AIC 2026 - TO BE UPDATED
+# Hướng dẫn setup AIC 2026 - TO BE UPDATED
 
-Tài liệu này dành cho developer tham gia phát triển source code. Developer làm việc trên branch riêng, chạy kiểm tra local và gửi Pull Request; không tự ý deploy production.
 
-## 1. Công cụ cần cài
+## 1. Tool
 
 - Git.
 - Docker Desktop với Linux containers.
