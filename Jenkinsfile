@@ -56,7 +56,7 @@ pipeline {
             steps {
                 sh '''
                     docker compose exec -T frontend \
-                        wget -qO- http://localhost/api/health/app
+                        wget -qO- http://127.0.0.1/api/health/app
                 '''
             }
         }
