@@ -1,0 +1,46 @@
+def search(collection, 
+           metadata, 
+           model=None, 
+           query1=None, 
+           index=None, 
+           augment=False, 
+           k=100, 
+           query2=None, 
+           llm=None, 
+           detection=None, 
+           objects=None, 
+           operator="AND", 
+           text=None, 
+           device='cpu'):
+    
+    topk = None
+    frame_paths = []
+    
+    if query1 is not None and index is not None and model is not None:
+        topk_faiss = retrieve(query1, index, k, augment, query2, model, device, llm)
+    else:
+        topk_faiss = []
+    
+    topk_fuzzy = fuzzy_search(collection, detection, objects, operator, text, k)
+    if topk_fuzzy == []:
+        topk = topk_faiss
+    elif topk_faiss == []:
+        topk = topk_fuzzy
+    else:
+        maping = dict(zip(topk_fuzzy, range(k)))
+        idx_set = set(topk_fuzzy)
+        
+        reranking = []
+        for i, idx in enumerate(topk_faiss):
+            if idx in idx_set:
+                reranking.append(1/(1000+i)+1/(1000+maping[idx]))
+            else:
+                reranking.append(1/(1000+i))
+        
+        topk = sorted(zip(topk_faiss, reranking), key=lambda x: x[1], reverse=True)
+        topk = [idx for idx, _ in topk]
+    if topk:
+        frame_paths = [metadata[idx] for idx in topk]
+    else:
+        topk = []
+    return topk, frame_paths

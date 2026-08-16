@@ -1,0 +1,7 @@
+.venv/
+.env
+
+# Folders to ignore
+beit3/
+embedding-info/
+metadata/
