@@ -1,0 +1,50 @@
+services:
+  backend-api:
+    image: "${BACKEND_IMAGE}:${IMAGE_TAG}"
+    restart: unless-stopped
+
+    env_file:
+      - "${PRODUCTION_ENV_FILE}"
+
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5000
+      DEBUG: "false"
+
+    expose:
+      - "5000"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health/app')"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    image: "${FRONTEND_IMAGE}:${IMAGE_TAG}"
+    restart: unless-stopped
+
+    ports:
+      - "${PRODUCTION_FRONTEND_PORT:-8088}:80"
+
+    depends_on:
+      backend-api:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1/health
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

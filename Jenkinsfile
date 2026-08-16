@@ -9,9 +9,11 @@ pipeline {
 
     environment {
         COMPOSE_PROJECT_NAME = "aic2026-ci-${BUILD_NUMBER}"
+        PRODUCTION_PROJECT = 'aic2026-production'
 
         BACKEND_PORT = '15000'
         FRONTEND_PORT = '18088'
+        PRODUCTION_FRONTEND_PORT = '8088'
 
         REGISTRY = 'ghcr.io'
         BACKEND_IMAGE = 'ghcr.io/khoinguyen248/aic2026-backend'
@@ -125,6 +127,56 @@ pipeline {
 
                         docker push \
                             "$FRONTEND_IMAGE:latest"
+
+                        docker logout "$REGISTRY"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy production') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'ghcr-credentials',
+                        usernameVariable: 'GHCR_USERNAME',
+                        passwordVariable: 'GHCR_TOKEN'
+                    ),
+                    file(
+                        credentialsId: 'aic-production-env',
+                        variable: 'PRODUCTION_ENV_FILE'
+                    )
+                ]) {
+                    sh '''
+                        echo "$GHCR_TOKEN" |
+                            docker login "$REGISTRY" \
+                                --username "$GHCR_USERNAME" \
+                                --password-stdin
+
+                        docker compose \
+                            --project-name "$PRODUCTION_PROJECT" \
+                            --file compose.production.yaml \
+                            pull
+
+                        docker compose \
+                            --project-name "$PRODUCTION_PROJECT" \
+                            --file compose.production.yaml \
+                            up -d \
+                            --remove-orphans \
+                            --wait \
+                            --wait-timeout 120
+
+                        docker compose \
+                            --project-name "$PRODUCTION_PROJECT" \
+                            --file compose.production.yaml \
+                            ps
+
+                        docker compose \
+                            --project-name "$PRODUCTION_PROJECT" \
+                            --file compose.production.yaml \
+                            exec -T frontend \
+                            wget -qO- \
+                            http://127.0.0.1/api/health/app
 
                         docker logout "$REGISTRY"
                     '''
