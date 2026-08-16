@@ -1,16 +1,27 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
-
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 COPY requirements-core.txt .
 RUN python -m pip install --upgrade pip \
     && pip install -r requirements-core.txt
 
 COPY . .
+
+
+FROM base AS test
+
+COPY requirements-test.txt .
+RUN pip install -r requirements-test.txt
+
+CMD ["pytest", "-q"]
+
+
+FROM base AS production
 
 EXPOSE 5000
 

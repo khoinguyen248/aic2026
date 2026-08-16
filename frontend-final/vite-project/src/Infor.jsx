@@ -9,19 +9,23 @@ const Infor = ({ setModalFlag, selectedFrame }) => {
   const idChecked = selectedFrame.idx
 
   // Lấy 10 trước và 10 sau
-const fetchInfo = async () => {
-console.log(selectedFrame)
-const response = await searchinfo(selectedFrame)
-const frames = response.data.results
-console.log(frames)
-setFrames(frames)
-}
+
 
 const [frames, setFrames] = useState([])
 
-useEffect(()=> {
-fetchInfo()
-}, [idChecked])
+useEffect(() => {
+  const fetchInfo = async () => {
+    console.log(selectedFrame)
+
+    const response = await searchinfo(selectedFrame)
+    const results = response.data.results
+
+    console.log(results)
+    setFrames(results)
+  }
+
+  fetchInfo()
+}, [selectedFrame])
   return (
     <div className="overlay">
       <div className="content">

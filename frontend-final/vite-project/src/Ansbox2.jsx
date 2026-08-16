@@ -20,7 +20,6 @@ function Ansbox1({inf, close}) {
         console.log("Initial frame ID:", initialFrameId); // Debug log
         return [initialFrameId];
     })
-    const [anse, setAnse] = useState("")
 
     // Thêm ô input mới cho frame ID
     const addFrameInput = () => {

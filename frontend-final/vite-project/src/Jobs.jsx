@@ -1,12 +1,12 @@
 // Jobs.jsx
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { MdManageSearch } from "react-icons/md";
 import { Checkbox, Select, Space } from "antd";
 import { FaCirclePlay } from "react-icons/fa6";
 import { IoIosAddCircle } from "react-icons/io";
 
 import './App.css'
-import { Table, Button, Drawer, Form, Radio, Input } from 'antd'
+import { Table, Button, Drawer, Radio, Input } from 'antd'
 import ItemPalette from './ItemPalette';
 import DropArea from './DropArea';
 import { search } from './api';
@@ -82,13 +82,11 @@ function Jobs() {
   const [logic, setLogic] = useState("AND");
   const [text, setText] = useState("")
   const [droppedItems, setDroppedItems] = useState([]);
-  const [droppedItems2, setDroppedItems2] = useState([]);
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [screen1, setScreen1] = useState("");
   const [screen2, setScreen2] = useState("");
   const [screen3, setScreen3] = useState("");
-  const [buttonflag, setButtonflag] = useState(false)
   const [tempFuzzy, setTempFuzzy] = useState(-1)
   const [lang, setLang] = useState("Eng")
   const [inf, setInf] = useState()
@@ -109,13 +107,9 @@ function Jobs() {
   const handleDrop = (item, position) => {
     setDroppedItems(prev => [...prev, { ...item, position }]);
   };
-  const handleDrop2 = (item, position) => {
-    setDroppedItems2(prev => [...prev, { ...item, position }]);
-  };
+  
   const handleRemove = (index) => setDroppedItems(prev => prev.filter((_, i) => i !== index));
-  const handleRemove2 = (index) => setDroppedItems2(prev => prev.filter((_, i) => i !== index));
 
-  const [form] = Form.useForm();
 
   // normalize retrieval into rows of 5
   const rows = [];
@@ -155,7 +149,6 @@ function Jobs() {
       const time = item.frame_stamp
       const mstime = Math.floor(time * 1000)
       const fps = item.fps
-      const mathfloor = Math.floor(time)
       let minute = Math.floor(time / 60)
       let sec = Math.floor(time - 60 * minute)
       const infor = {
