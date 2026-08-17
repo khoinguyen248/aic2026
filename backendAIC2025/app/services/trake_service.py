@@ -10,14 +10,13 @@ sửa code khi đổi máy.
 
 Rerank khoảnh khắc trong tầng 3 cũng tự swap tương tự: mặc định dùng thuật toán
 (pick_semantic_frame_algorithmic - peak/prominence trên đường cong điểm số, miễn phí);
-chỉ gọi Qwen2.5-VL (qwen_rerank_candidates) khi 2+ ứng viên đầu tie sít sao VÀ
-TRAKE_QWEN_RERANK_ENABLED=true VÀ QWEN_API_BASE_URL đã cấu hình - có fallback an toàn
-về thuật toán nếu Qwen lỗi/timeout.
+chỉ gọi Qwen2.5-VL (load LOCAL qua transformers, quantize 4bit/8bit, giữ ấm trên GPU)
+khi 2+ ứng viên đầu tie sít sao VÀ TRAKE_QWEN_RERANK_ENABLED=true - có fallback an toàn
+về thuật toán nếu load/inference lỗi.
 """
-import base64
 import logging
 import os
-from io import BytesIO
+import threading
 from itertools import product
 from math import prod
 
@@ -31,6 +30,12 @@ from ..config import Config
 logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
+
+# Qwen2.5-VL load local 1 lần, giữ ấm (spec mục 13). Lazy: chỉ load khi lần đầu thật sự cần rerank.
+_qwen_model = None
+_qwen_processor = None
+_qwen_lock = threading.Lock()
+_qwen_load_failed = False
 
 # §10.3.1: ngân sách ứng viên/mỗi event sao cho tích Descartes không vượt quá 100 tổ hợp.
 _CANDIDATE_BUDGET = {2: 10, 3: 4, 4: 3, 5: 3, 6: 2}
@@ -294,55 +299,109 @@ def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
 def qwen_rerank_ready():
     if not Config.TRAKE_QWEN_RERANK_ENABLED:
         return False, "TRAKE_QWEN_RERANK_ENABLED=false -> chỉ dùng thuật toán (peak detection)"
-    if not Config.QWEN_API_BASE_URL:
-        return False, "QWEN_API_BASE_URL chưa cấu hình -> chỉ dùng thuật toán"
-    return True, "Qwen rerank sẵn sàng"
+    if _qwen_load_failed:
+        return False, "Qwen local load lỗi trước đó -> chỉ dùng thuật toán"
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        return False, "transformers chưa được cài -> chỉ dùng thuật toán"
+    return True, "Qwen2.5-VL (local) sẵn sàng"
+
+
+def _load_qwen():
+    """Load Qwen2.5-VL local 1 lần rồi giữ ấm. Quantize theo Config.QWEN_QUANTIZATION để giảm
+    VRAM/RAM (4bit/8bit qua bitsandbytes; 'none' cho model đã prequant AWQ/GPTQ). Load lỗi bất kỳ
+    -> đánh dấu _qwen_load_failed, trả (None, None) để caller fallback thuật toán, không retry."""
+    global _qwen_model, _qwen_processor, _qwen_load_failed
+
+    if not Config.TRAKE_QWEN_RERANK_ENABLED or _qwen_load_failed:
+        return None, None
+    if _qwen_model is not None:
+        return _qwen_model, _qwen_processor
+
+    with _qwen_lock:
+        if _qwen_model is not None:
+            return _qwen_model, _qwen_processor
+        if _qwen_load_failed:
+            return None, None
+        try:
+            from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+
+            quant = (Config.QWEN_QUANTIZATION or "none").lower()
+            model_kwargs = {"torch_dtype": "auto", "device_map": Config.QWEN_DEVICE_MAP}
+            if quant in ("4bit", "8bit"):
+                from transformers import BitsAndBytesConfig
+
+                if quant == "4bit":
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.bfloat16,
+                        bnb_4bit_use_double_quant=True,
+                    )
+                else:
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+
+            logger.info(
+                "Loading Qwen2.5-VL local: %s (quant=%s, device_map=%s)...",
+                Config.QWEN_MODEL_PATH, quant, Config.QWEN_DEVICE_MAP,
+            )
+            _qwen_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                Config.QWEN_MODEL_PATH, **model_kwargs
+            )
+            _qwen_model.eval()
+            _qwen_processor = AutoProcessor.from_pretrained(Config.QWEN_MODEL_PATH)
+            logger.info("Qwen2.5-VL loaded & kept warm.")
+        except Exception as e:
+            logger.warning("Không load được Qwen2.5-VL local (%s) -> tắt Qwen rerank, dùng thuật toán", e)
+            _qwen_load_failed = True
+            _qwen_model = _qwen_processor = None
+
+    return _qwen_model, _qwen_processor
 
 
 def qwen_rerank_candidates(frame_ids, frames_pil, event_text):
-    """Gọi Qwen2.5-VL qua endpoint kiểu OpenAI-compatible (vLLM/Ollama tự host, DashScope, ...)
-    để phân xử giữa vài frame gần tie theo điểm cosine. Trả None nếu lỗi/timeout bất kỳ ->
-    caller PHẢI tự fallback về kết quả thuật toán, không được để trống kết quả vì lỗi mạng."""
-    import requests
+    """Dùng Qwen2.5-VL LOCAL để phân xử giữa vài frame gần tie theo cosine. Trả frame_id được
+    chọn, hoặc None nếu chưa bật / load lỗi / inference lỗi -> caller PHẢI tự fallback về kết quả
+    thuật toán, không được để trống kết quả."""
+    model, processor = _load_qwen()
+    if model is None or processor is None:
+        return None
 
     try:
-        content = [
+        content = []
+        for i in range(len(frames_pil)):
+            content.append({"type": "image", "image": frames_pil[i]})
+            content.append({"type": "text", "text": f"(ảnh {i + 1})"})
+        content.append(
             {
                 "type": "text",
                 "text": (
-                    f'Trong các ảnh sau (đánh số theo đúng thứ tự thời gian), ảnh nào ĐÚNG khoảnh khắc: '
-                    f'"{event_text}"? Chỉ trả về đúng 1 số thứ tự ảnh, không giải thích gì thêm.'
+                    f'Các ảnh trên xếp theo đúng thứ tự thời gian. Ảnh nào ĐÚNG khoảnh khắc: '
+                    f'"{event_text}"? Chỉ trả về đúng 1 số thứ tự ảnh (1..{len(frames_pil)}), không giải thích.'
                 ),
             }
-        ]
-        for i, img in enumerate(frames_pil):
-            buf = BytesIO()
-            img.save(buf, format="JPEG")
-            b64 = base64.b64encode(buf.getvalue()).decode()
-            content.append({"type": "text", "text": f"Ảnh {i + 1}:"})
-            content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-
-        headers = {"Authorization": f"Bearer {Config.QWEN_API_KEY}"} if Config.QWEN_API_KEY else {}
-        resp = requests.post(
-            f"{Config.QWEN_API_BASE_URL.rstrip('/')}/chat/completions",
-            headers=headers,
-            json={
-                "model": Config.QWEN_MODEL_NAME,
-                "messages": [{"role": "user", "content": content}],
-                "max_tokens": 10,
-                "temperature": 0,
-            },
-            timeout=Config.QWEN_RERANK_TIMEOUT,
         )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
-        digits = "".join(ch for ch in text if ch.isdigit())
+        messages = [{"role": "user", "content": content}]
+
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        inputs = processor(text=[text], images=list(frames_pil), padding=True, return_tensors="pt")
+        inputs = inputs.to(model.device)
+
+        with torch.inference_mode():
+            generated = model.generate(
+                **inputs, max_new_tokens=Config.QWEN_MAX_NEW_TOKENS, do_sample=False
+            )
+        trimmed = generated[:, inputs.input_ids.shape[1]:]
+        out = processor.batch_decode(trimmed, skip_special_tokens=True)[0]
+
+        digits = "".join(ch for ch in out if ch.isdigit())
         if digits:
             picked = int(digits[:2])
             if 1 <= picked <= len(frame_ids):
                 return frame_ids[picked - 1]
     except Exception as e:
-        logger.warning("Qwen rerank thất bại (%s) -> fallback thuật toán", e)
+        logger.warning("Qwen rerank inference lỗi (%s) -> fallback thuật toán", e)
     return None
 
 

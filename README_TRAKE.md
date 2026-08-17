@@ -90,11 +90,13 @@ tự động — xem mục 4 (Case 1/2).
    dùng `scipy.signal.find_peaks`) — tách được "khoảnh khắc" thật ra khỏi một dải nhiều frame gần
    giống hệt nhau mà CLIP không phân biệt nổi. Nếu không tìm được đỉnh nào (hoặc thiếu scipy),
    tự rơi về argmax thường — không bao giờ tệ hơn cách cũ.
-2. **Tuỳ chọn — Qwen2.5-VL, chỉ gọi khi thật sự cần**: nếu 2 ứng viên đầu (sau bước 1) vẫn **tie
-   sít sao** (chênh lệch điểm < `TRAKE_RERANK_TIE_MARGIN`, mặc định 0.03) **và** đã bật
-   `TRAKE_QWEN_RERANK_ENABLED=true` **và** có `QWEN_API_BASE_URL` → gửi các frame đang tie kèm mô
-   tả event cho Qwen chọn đúng khoảnh khắc ngữ nghĩa. Nếu gọi Qwen lỗi/timeout/chưa cấu hình →
-   **tự fallback về kết quả thuật toán**, không bao giờ làm hỏng kết quả vì lỗi mạng.
+2. **Tuỳ chọn — Qwen2.5-VL (chạy LOCAL), chỉ gọi khi thật sự cần**: nếu 2 ứng viên đầu (sau bước
+   1) vẫn **tie sít sao** (chênh lệch điểm < `TRAKE_RERANK_TIE_MARGIN`, mặc định 0.03) **và** đã bật
+   `TRAKE_QWEN_RERANK_ENABLED=true` → đưa các frame đang tie kèm mô tả event cho Qwen chọn đúng
+   khoảnh khắc ngữ nghĩa. Qwen được **load local qua transformers và giữ ấm trên GPU** (spec mục
+   13), **quantize 4bit/8bit** để giảm VRAM/RAM cho model 7B/72B — **không dùng API bên ngoài**.
+   Nếu load/inference lỗi (thiếu GPU, thiếu thư viện, ...) → **tự fallback về kết quả thuật toán**,
+   không bao giờ làm hỏng kết quả.
 
 Cơ chế bật/tắt Qwen **giống hệt kiểu Case 1/2** đã làm cho tier 3 — tự động theo cấu hình, không
 cần sửa code khi đổi máy.
@@ -130,19 +132,24 @@ VIDEO_ROOT=E:\aic2026_videos
 
 Không set (hoặc set nhưng USB chưa gắn) → tự rơi về Case 2, không cần sửa code, không crash.
 
-**Rerank Qwen cũng có công tắc riêng tương tự** (`qwen_rerank_ready()`), độc lập với Case 1/2:
+**Rerank Qwen cũng có công tắc riêng tương tự** (`qwen_rerank_ready()`), độc lập với Case 1/2.
+Qwen chạy **local** (load qua transformers, giữ ấm trên GPU, quantize để tiết kiệm RAM/VRAM),
+**không dùng API**:
 
 ```env
 TRAKE_QWEN_RERANK_ENABLED=true
-QWEN_API_BASE_URL=http://localhost:8000/v1
-QWEN_API_KEY=
-QWEN_MODEL_NAME=qwen2.5-vl-7b-instruct
+QWEN_MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
+QWEN_QUANTIZATION=4bit          # 4bit | 8bit | none
+QWEN_DEVICE_MAP=auto
+QWEN_MAX_NEW_TOKENS=10
 ```
 
-`QWEN_API_BASE_URL` phải là endpoint kiểu OpenAI-compatible (`.../chat/completions`) — ví dụ tự
-host Qwen2.5-VL bằng vLLM/Ollama, hoặc dùng DashScope. Repo này **chưa có sẵn hạ tầng chạy Qwen**,
-nên cần bạn tự dựng endpoint đó trước rồi mới điền vào đây. Không set → luôn chỉ dùng thuật toán,
-không lỗi, không cần sửa code.
+- `QWEN_QUANTIZATION=4bit` (mặc định): model 7B chạy vừa ~6–8GB VRAM nhờ bitsandbytes. `8bit` nếu
+  VRAM dư; `none` nếu bạn trỏ `QWEN_MODEL_PATH` tới bản **đã prequant AWQ/GPTQ**.
+- Cần cài thêm (chỉ khi bật Qwen, cần GPU): `accelerate`, `bitsandbytes` (cho 4bit/8bit),
+  và `qwen-vl-utils` — đã liệt kê dạng comment trong `requirements.txt`.
+- Model load **lazy 1 lần** ở lần rerank đầu tiên rồi giữ ấm; nếu load lỗi (không GPU / thiếu thư
+  viện) → tự tắt Qwen và dùng thuật toán, không crash. Không bật → luôn chỉ dùng thuật toán.
 
 ## 5. Muốn thêm/sửa gì thì sửa ở đâu
 
@@ -152,6 +159,7 @@ không lỗi, không cần sửa code.
 | Đổi bán kính quét tinh chỉnh (hiện tại ±15 frame) | `Config.TRAKE_TIER3_RADIUS` |
 | Đổi ngưỡng coi là "tie" để gọi Qwen | `Config.TRAKE_RERANK_TIE_MARGIN` |
 | Đổi prompt gửi Qwen | `qwen_rerank_candidates()` trong `trake_service.py` |
+| Đổi cách load/quantize Qwen | `_load_qwen()` trong `trake_service.py` + các biến `QWEN_*` trong `.env` |
 | Thêm leg BEiT-3 hoặc jina-clip-v2 cho TRAKE (hiện chỉ dùng CLIP) | Viết thêm `encode_texts_beit3()`/`encode_images_beit3()` tương tự `encode_texts()`/`encode_images()` trong `trake_service.py`, rồi cho `run_trake()` nhận thêm 1 `model_bundle` |
 | Đổi công thức chọn video (Bước 1) | `_dp_align()` + `select_video_dp()` |
 | Đổi cách sinh tổ hợp nộp (Bước 5) | `build_cartesian_submissions()` + `nms_candidates()` |
