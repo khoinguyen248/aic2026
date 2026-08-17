@@ -7,8 +7,17 @@ frame gốc trong cửa sổ [f-R, f+R] quanh vị trí thô.
 Case 2 (không có video gốc): tự động rơi về độ phân giải keyframe (không tinh chỉnh).
 Việc chuyển case là tự động theo cấu hình + sự tồn tại thật của file video, không cần
 sửa code khi đổi máy.
+
+Rerank khoảnh khắc trong tầng 3 cũng tự swap tương tự: mặc định dùng thuật toán
+(pick_semantic_frame_algorithmic - peak/prominence trên đường cong điểm số, miễn phí);
+chỉ gọi Qwen2.5-VL (qwen_rerank_candidates) khi 2+ ứng viên đầu tie sít sao VÀ
+TRAKE_QWEN_RERANK_ENABLED=true VÀ QWEN_API_BASE_URL đã cấu hình - có fallback an toàn
+về thuật toán nếu Qwen lỗi/timeout.
 """
+import base64
+import logging
 import os
+from io import BytesIO
 from itertools import product
 from math import prod
 
@@ -18,6 +27,8 @@ import torch
 from PIL import Image
 
 from ..config import Config
+
+logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
 
@@ -251,11 +262,97 @@ def resolve_video_path(L, V, mongo_collection):
     return None
 
 
-def refine_event_fine(video_path, ev_vec, coarse_frame_id, prev_fine_frame_id, clip_bundle, device, radius, stride, topk):
+def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
+    """Rerank thuật toán, không cần model rời: thay vì chỉ argmax điểm cosine, ưu tiên
+    frame nào là ĐỈNH RÕ RỆT (prominence cao) trên đường cong điểm số theo thời gian —
+    tách được "khoảnh khắc" khỏi 1 dải phẳng nhiều frame gần giống hệt nhau mà cosine
+    không phân biệt nổi. Nếu thiếu scipy hoặc không tìm được đỉnh nào, rơi về argmax
+    thường (hành vi y hệt bản cũ trước khi có hàm này -> không bao giờ tệ hơn)."""
+    scores = np.asarray(scores, dtype=np.float64)
+
+    if len(scores) >= 3:
+        try:
+            from scipy.signal import find_peaks
+
+            peaks, props = find_peaks(scores, prominence=0)
+            if len(peaks) > 0:
+                ranked_peaks = sorted(
+                    zip(peaks.tolist(), props["prominences"].tolist()),
+                    key=lambda p: (-p[1], -scores[p[0]]),
+                )
+                ranked_idx = [p[0] for p in ranked_peaks]
+                remaining = [i for i in np.argsort(-scores).tolist() if i not in ranked_idx]
+                ranked_idx = (ranked_idx + remaining)[:topk]
+                return [(int(frame_ids[i]), float(scores[i])) for i in ranked_idx]
+        except ImportError:
+            pass
+
+    order = np.argsort(-scores)[:topk]
+    return [(int(frame_ids[i]), float(scores[i])) for i in order]
+
+
+def qwen_rerank_ready():
+    if not Config.TRAKE_QWEN_RERANK_ENABLED:
+        return False, "TRAKE_QWEN_RERANK_ENABLED=false -> chỉ dùng thuật toán (peak detection)"
+    if not Config.QWEN_API_BASE_URL:
+        return False, "QWEN_API_BASE_URL chưa cấu hình -> chỉ dùng thuật toán"
+    return True, "Qwen rerank sẵn sàng"
+
+
+def qwen_rerank_candidates(frame_ids, frames_pil, event_text):
+    """Gọi Qwen2.5-VL qua endpoint kiểu OpenAI-compatible (vLLM/Ollama tự host, DashScope, ...)
+    để phân xử giữa vài frame gần tie theo điểm cosine. Trả None nếu lỗi/timeout bất kỳ ->
+    caller PHẢI tự fallback về kết quả thuật toán, không được để trống kết quả vì lỗi mạng."""
+    import requests
+
+    try:
+        content = [
+            {
+                "type": "text",
+                "text": (
+                    f'Trong các ảnh sau (đánh số theo đúng thứ tự thời gian), ảnh nào ĐÚNG khoảnh khắc: '
+                    f'"{event_text}"? Chỉ trả về đúng 1 số thứ tự ảnh, không giải thích gì thêm.'
+                ),
+            }
+        ]
+        for i, img in enumerate(frames_pil):
+            buf = BytesIO()
+            img.save(buf, format="JPEG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            content.append({"type": "text", "text": f"Ảnh {i + 1}:"})
+            content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+
+        headers = {"Authorization": f"Bearer {Config.QWEN_API_KEY}"} if Config.QWEN_API_KEY else {}
+        resp = requests.post(
+            f"{Config.QWEN_API_BASE_URL.rstrip('/')}/chat/completions",
+            headers=headers,
+            json={
+                "model": Config.QWEN_MODEL_NAME,
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": 10,
+                "temperature": 0,
+            },
+            timeout=Config.QWEN_RERANK_TIMEOUT,
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
+        digits = "".join(ch for ch in text if ch.isdigit())
+        if digits:
+            picked = int(digits[:2])
+            if 1 <= picked <= len(frame_ids):
+                return frame_ids[picked - 1]
+    except Exception as e:
+        logger.warning("Qwen rerank thất bại (%s) -> fallback thuật toán", e)
+    return None
+
+
+def refine_event_fine(video_path, ev_vec, event_text, coarse_frame_id, prev_fine_frame_id, clip_bundle, device, radius, stride, topk):
+    """Trả về (candidates, used_qwen). candidates=None nếu không đọc được video (caller tự
+    fallback độ phân giải keyframe)."""
     import cv2
 
     if coarse_frame_id is None:
-        return None
+        return None, False
 
     lo = coarse_frame_id - radius
     if prev_fine_frame_id is not None:
@@ -267,7 +364,7 @@ def refine_event_fine(video_path, ev_vec, coarse_frame_id, prev_fine_frame_id, c
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        return None
+        return None, False
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, lo)
     frames, frame_ids = [], []
@@ -283,12 +380,26 @@ def refine_event_fine(video_path, ev_vec, coarse_frame_id, prev_fine_frame_id, c
     cap.release()
 
     if not frames:
-        return None
+        return None, False
 
     embs = encode_images(frames, clip_bundle, device=device)
     scores = embs @ ev_vec
-    order = np.argsort(-scores)[:topk]
-    return [(int(frame_ids[i]), float(scores[i])) for i in order]
+    ranked = pick_semantic_frame_algorithmic(frame_ids, scores, topk)
+
+    used_qwen = False
+    if len(ranked) >= 2 and abs(ranked[0][1] - ranked[1][1]) < Config.TRAKE_RERANK_TIE_MARGIN:
+        ready, _reason = qwen_rerank_ready()
+        if ready and event_text:
+            tie = ranked[: min(len(ranked), 3)]
+            tie_ids = [fid for fid, _ in tie]
+            tie_frames = [frames[frame_ids.index(fid)] for fid in tie_ids]
+            picked = qwen_rerank_candidates(tie_ids, tie_frames, event_text)
+            if picked is not None:
+                top_score = ranked[0][1]
+                ranked = [(picked, top_score)] + [c for c in ranked if c[0] != picked]
+                used_qwen = True
+
+    return ranked, used_qwen
 
 
 # ---------------------------------------------------------------------------
@@ -369,9 +480,11 @@ def run_trake(
     slots = allocate_video_slots(video_candidates, total_slots=max_combos, confidence_threshold=confidence_threshold)
 
     ready, reason = tier3_globally_ready()
+    qwen_ready, qwen_reason = qwen_rerank_ready()
 
     per_video = []
     any_tier3 = False
+    qwen_used_events_total = 0
 
     for video, slot_count in slots:
         if slot_count <= 0:
@@ -386,15 +499,18 @@ def run_trake(
         use_tier3 = ready and video_path is not None
 
         candidates_per_event = []
+        qwen_used_events = 0
         if use_tier3:
             prev_fine = None
-            for ev_vec, cands in zip(event_vecs, coarse):
-                fine = refine_event_fine(
-                    video_path, ev_vec, cands[0]["frame_id"], prev_fine, clip_bundle, device,
+            for ev_vec, ev_text, cands in zip(event_vecs, events_text, coarse):
+                fine, used_qwen = refine_event_fine(
+                    video_path, ev_vec, ev_text, cands[0]["frame_id"], prev_fine, clip_bundle, device,
                     tier3_radius, tier3_stride, tier3_topk,
                 )
                 if fine is None:
                     fine = [(c["frame_id"], c["score"]) for c in cands if c.get("frame_id") is not None]
+                if used_qwen:
+                    qwen_used_events += 1
                 candidates_per_event.append(fine)
                 if fine:
                     prev_fine = fine[0][0]
@@ -407,6 +523,7 @@ def run_trake(
                 candidates_per_event.append(fallback)
 
         any_tier3 = any_tier3 or use_tier3
+        qwen_used_events_total += qwen_used_events
 
         combos = build_cartesian_submissions(candidates_per_event, max_combos=slot_count)
         per_video.append(
@@ -416,6 +533,7 @@ def run_trake(
                 "V": V,
                 "video_score": video["score"],
                 "tier3_used": use_tier3,
+                "qwen_rerank_used_events": qwen_used_events,
                 "combos": combos,
             }
         )
@@ -431,6 +549,9 @@ def run_trake(
         "mode": "case1_full" if any_tier3 else "case2_coarse",
         "tier3_globally_ready": ready,
         "tier3_reason": reason,
+        "qwen_rerank_globally_ready": qwen_ready,
+        "qwen_rerank_reason": qwen_reason,
+        "qwen_rerank_used_events": qwen_used_events_total,
         "video_candidates": [
             {"video_id": f"{v['L']}_{v['V']}", "L": v["L"], "V": v["V"], "score": v["score"]}
             for v in video_candidates

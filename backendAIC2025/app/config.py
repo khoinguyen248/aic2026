@@ -55,3 +55,16 @@ class Config:
     TRAKE_VIDEO_CONFIDENCE_THRESHOLD = float(
         os.getenv("TRAKE_VIDEO_CONFIDENCE_THRESHOLD", "0.8")
     )
+
+    # Rerank tầng 3 khi 2+ frame liền kề gần như tie (CLIP không phân biệt được).
+    # Mặc định dùng thuật toán (peak/prominence trên đường cong điểm số) - miễn phí, luôn chạy.
+    # Bật thêm Qwen2.5-VL (qua endpoint kiểu OpenAI-compatible, vd vLLM/Ollama tự host, hoặc
+    # DashScope) để phân xử khi thuật toán cũng không chắc -> chỉ gọi khi thật sự cần, có fallback
+    # an toàn về thuật toán nếu gọi lỗi/timeout.
+    TRAKE_RERANK_TIE_MARGIN = float(os.getenv("TRAKE_RERANK_TIE_MARGIN", "0.03"))
+
+    TRAKE_QWEN_RERANK_ENABLED = env_bool("TRAKE_QWEN_RERANK_ENABLED", False)
+    QWEN_API_BASE_URL = os.getenv("QWEN_API_BASE_URL", "")
+    QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
+    QWEN_MODEL_NAME = os.getenv("QWEN_MODEL_NAME", "qwen2.5-vl-7b-instruct")
+    QWEN_RERANK_TIMEOUT = float(os.getenv("QWEN_RERANK_TIMEOUT", "8"))
