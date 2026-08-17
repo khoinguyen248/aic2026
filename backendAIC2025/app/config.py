@@ -40,3 +40,18 @@ class Config:
     KEYFRAMES_PATH = os.getenv("KEYFRAMES_PATH", "/data/keyframes")
 
     QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
+
+    # TRAKE tầng 3 (tinh chỉnh trên frame gốc) cần đọc video thật.
+    # Máy có USB/ổ chứa video: TRAKE_TIER3_ENABLED=true + VIDEO_ROOT trỏ tới thư mục video.
+    # Máy không có: để mặc định (false) -> tự động chạy case 2 (2 tầng, không tinh chỉnh).
+    TRAKE_TIER3_ENABLED = env_bool("TRAKE_TIER3_ENABLED", False)
+    VIDEO_ROOT = os.getenv("VIDEO_ROOT", "")
+
+    TRAKE_TOP_M = int(os.getenv("TRAKE_TOP_M", "150"))
+    TRAKE_TOP_VIDEOS = int(os.getenv("TRAKE_TOP_VIDEOS", "2"))
+    TRAKE_MAX_COMBOS = int(os.getenv("TRAKE_MAX_COMBOS", "100"))
+    TRAKE_TIER3_RADIUS = int(os.getenv("TRAKE_TIER3_RADIUS", "15"))
+    TRAKE_TIER3_STRIDE = int(os.getenv("TRAKE_TIER3_STRIDE", "1"))
+    TRAKE_VIDEO_CONFIDENCE_THRESHOLD = float(
+        os.getenv("TRAKE_VIDEO_CONFIDENCE_THRESHOLD", "0.8")
+    )
