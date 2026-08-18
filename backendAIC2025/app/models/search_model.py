@@ -13,13 +13,15 @@ from beit3.modeling_finetune import beit3_large_patch16_384_retrieval
 from beit3 import *
 import open_clip
 from google import genai
+from flask import current_app
 
 def create_beit3():
     model = beit3_large_patch16_384_retrieval(pretrained=True)
-    model.load_state_dict(torch.load(r'C:\Users\PC\Documents\STUDY\AI\AIC-2025-test\backendAIC2025\beit3\checkpoints\beit3_large_patch16_224.pth')['model'])
+    checkpoint_path = current_app.config.get("BEIT3_CHECKPOINT_PATH")
+    model.load_state_dict(torch.load(checkpoint_path)['model'])
 
     tokenizer = get_beit3_tokenizer()
-    
+
     return model, tokenizer
 
 def create_clip():
@@ -30,5 +32,9 @@ def create_clip():
     return clip, tokenizer, preprocess
 
 def create_llm():
-    client = genai.Client(api_key="AIzaSyAGJ52LJvwSlZqleiAB3Xioz6vjS-Xm6Mc")
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if not api_key:
+        current_app.logger.warning("GEMINI_API_KEY chưa cấu hình -> bỏ qua HyDE/augment (LLM=None)")
+        return None
+    client = genai.Client(api_key=api_key)
     return client

@@ -64,6 +64,21 @@ def _ensure_models(device=DEVICE_DEFAULT):
         current_app.logger.info("Model/index initialization complete.")
 
 
+def ensure_models(device=DEVICE_DEFAULT):
+    """Đảm bảo model/index đã init (dùng chung singleton với search_collection) và
+    trả về bundle cho các controller khác (vd trake_controller) tái sử dụng, tránh
+    load model 2 lần."""
+    _ensure_models(device=device)
+    return {
+        "beit3": (_beit3, _beit3_tokenizer),
+        "clip": (_clip, _clip_tokenizer, _clip_preprocess),
+        "llm": _llm,
+        "index_beit": _index_beit,
+        "index_clip": _index_clip,
+        "metadata": _index_metadata,
+    }
+
+
 def retrieve(query1, index, k, augment=False, query2=None, query3=None, model=None, device='cpu', llm=None):
 	sims1, ids1 = faiss_search_results(query1, index, k, augment, model, device, llm)
 	topk_ids1, topk_sims1 = topk_fusion(sims1, ids1)
