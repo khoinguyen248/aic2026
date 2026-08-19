@@ -47,7 +47,7 @@ export default function YoutubePlayer({ url, close }) {
                 borderRadius: "8px",
               }}
             >
-              ⚠️ Không thể phát video với URL này
+              ⚠️ Cannot play video with this URL
             </div></>
 
 
