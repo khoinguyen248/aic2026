@@ -15,8 +15,16 @@ const ANS = axios.create({
 
 
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+
 export const search = (data2) => API.post('/search/collection', data2)
 export const searchinfo = (data3) => API.post('/search/infoframes', data3)
+export const trakeSearch = (data) => API.post('/search/trake', data)
+export const asrSearch = (data) => API.post('/search/asr', data)
+export const ocrSearch = (data) => API.post('/search/ocr', data)
+// URL ảnh 1 frame gốc để verify (decode từ video ở backend; lỗi/404 nếu máy không có video)
+export const frameUrl = (L, V, frameId) =>
+    `${API_BASE}/search/frame?L=${encodeURIComponent(L)}&V=${encodeURIComponent(V)}&frame_id=${frameId}`
 export const answer = (data4) => ANS.post('/api/v2/submit/06236d7d-368e-44ac-a388-c955cb374a7d?session=t5c14CtTasq641UNhGKBsQIHz_FBGo5I', data4)
 
 /*

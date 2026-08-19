@@ -1,15 +1,13 @@
 // Jobs.jsx
 import { useState } from 'react'
 import { MdManageSearch } from "react-icons/md";
-import { Checkbox, Select, Space } from "antd";
+import { Checkbox, Select } from "antd";
 import { FaCirclePlay } from "react-icons/fa6";
 import { IoIosAddCircle } from "react-icons/io";
 
 import './App.css'
 import { Table, Button, Drawer, Radio, Input } from 'antd'
-import ItemPalette from './ItemPalette';
-import DropArea from './DropArea';
-import { search } from './api';
+import { search, asrSearch, ocrSearch } from './api';
 import { Option } from 'antd/es/mentions';
 import { MenuOutlined } from "@ant-design/icons";
 import { CiLink } from "react-icons/ci";
@@ -20,74 +18,21 @@ import YoutubePlayer from './YoutubePlayer.jsx';
 import Ansbox from './Ansbox.jsx';
 import Ansbox1 from './Ansbox1.jsx';
 import Ansbox2 from './Ansbox2.jsx';
+import TrakePanel from './TrakePanel.jsx';
+import AsrResults from './AsrResults.jsx';
 
 function Jobs() {
   const [drawerOpen, setDrawerOpen] = useState(true); // mở mặc định
   const openDrawer = () => setDrawerOpen(true);
   const closeDrawer = () => setDrawerOpen(false);
 
-  // palette items
-  const availableItems = [
-    // Đã có sẵn
-    { id: 'person', label: 'person', icon: '👤' },
-    { id: 'man', label: 'man', icon: '👨' },
-    { id: 'woman', label: 'woman', icon: '👩' },
-    { id: 'human_face', label: 'human_face', icon: '🙂' },
-    { id: 'motorcycle', label: 'motorcycle', icon: '🏍️' },
-    { id: 'bicycle', label: 'bicycle', icon: '🚲' },
-    { id: 'car', label: 'car', icon: '🚗' },
-    { id: 'truck', label: 'truck', icon: '🚚' },
-    { id: 'boat', label: 'boat', icon: '⛵' },
-    { id: 'airplane', label: 'airplane', icon: '✈️' },
-    { id: 'cat', label: 'cat', icon: '🐱' },
-    { id: 'dog', label: 'dog', icon: '🐶' },
-    { id: 'cow', label: 'cow', icon: '🐄' },
-    { id: 'bird', label: 'bird', icon: '🐦' },
-    { id: 'umbrella', label: 'umbrella', icon: '☂️' },
-    { id: 'chair', label: 'chair', icon: '🪑' },
-    { id: 'tv', label: 'tv', icon: '📺' },
-    { id: 'laptop', label: 'laptop', icon: '💻' },
-    { id: 'house', label: 'house', icon: '🏠' },
-    { id: 'cell_phone', label: 'cell_phone', icon: '📱' },
-    { id: 'flower', label: 'flower', icon: '🌸' },
-    { id: 'tree', label: 'tree', icon: '🌳' },
-    { id: 'book', label: 'book', icon: '📖' },
-    { id: 'glasses', label: 'glasses', icon: '👓' },
-    { id: 'cake', label: 'cake', icon: '🎂' },
-    { id: 'horse', label: 'horse', icon: '🐎' },
-    { id: 'sports_equipment', label: 'sports_equipment', icon: '🏋️' },
-    { id: 'sports_ball', label: 'sports_ball', icon: '⚽' },
-    { id: 'bench', label: 'bench', icon: '🪑' },
-    { id: 'couch', label: 'couch', icon: '🛋️' },
-    { id: 'traffic_sign', label: 'traffic_sign', icon: '🚸' },
-
-    // Colors
-    { id: 'black', label: 'black', icon: '⚫' },
-    { id: 'white', label: 'white', icon: '⚪' },
-    { id: 'red', label: 'red', icon: '🔴' },
-    { id: 'green', label: 'green', icon: '🟢' },
-    { id: 'yellow', label: 'yellow', icon: '🟡' },
-    { id: 'blue', label: 'blue', icon: '🔵' },
-    { id: 'brown', label: 'brown', icon: '🟤' },
-    { id: 'purple', label: 'purple', icon: '🟣' },
-    { id: 'pink', label: 'pink', icon: '🌸' },
-    { id: 'orange', label: 'orange', icon: '🟠' },
-    { id: 'gray', label: 'gray', icon: '⚙️' }
-
-  ];
-
-
   // UI state
   const [status, setStatus] = useState(false);
-  const [logic, setLogic] = useState("AND");
-  const [text, setText] = useState("")
-  const [droppedItems, setDroppedItems] = useState([]);
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [screen1, setScreen1] = useState("");
   const [screen2, setScreen2] = useState("");
   const [screen3, setScreen3] = useState("");
-  const [tempFuzzy, setTempFuzzy] = useState(-1)
   const [lang, setLang] = useState("Eng")
   const [inf, setInf] = useState()
 
@@ -97,19 +42,49 @@ function Jobs() {
   const [vidFlag, setVidFlag] = useState('')
   const [ytflag, setYtflag] = useState(false)
   const [ansflag, setAnsflag] = useState(false)
-  const [obj, setObj] = useState("")
   const [model, setModel] = useState("beit3")
   const [topk, setTopk] = useState(100)
   const [retrival, setRetrival] = useState([]) // array of objects {path, L, V, frame_id, ...}
-  const [detection, setDetection] = useState(""); // detection từ DropArea
 
-  // Drop handlers
-  const handleDrop = (item, position) => {
-    setDroppedItems(prev => [...prev, { ...item, position }]);
-  };
-  
-  const handleRemove = (index) => setDroppedItems(prev => prev.filter((_, i) => i !== index));
+  // ASR search (thay cho object search): 2 mode — standalone (độc lập) / merge (gộp vào search chính)
+  const [asrQuery, setAsrQuery] = useState("")
+  const [asrMode, setAsrMode] = useState("standalone")
+  const [asrResults, setAsrResults] = useState([])
+  const [asrLoading, setAsrLoading] = useState(false)
+  const [asrError, setAsrError] = useState("")
 
+  const runAsrSearch = async () => {
+    if (!asrQuery.trim()) { setAsrError("Enter spoken content to search"); return }
+    setAsrError(""); setAsrLoading(true); setAsrResults([])
+    try {
+      const resp = await asrSearch({ query: asrQuery, k: 50 })
+      if (resp.data?.ok) setAsrResults(resp.data.results || [])
+      else setAsrError(resp.data?.error || "ASR search failed")
+    } catch (err) {
+      setAsrError(err?.response?.data?.error || err.message || "Backend connection error")
+    } finally { setAsrLoading(false) }
+  }
+  const asrActive = asrMode === "standalone" && (asrLoading || asrError || asrResults.length > 0)
+
+  // OCR search (chữ trên màn hình) — cùng pattern ASR; standalone tái dùng bảng frame (retrival)
+  const [ocrQuery, setOcrQuery] = useState("")
+  const [ocrMode, setOcrMode] = useState("standalone")
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrError, setOcrError] = useState("")
+
+  const runOcrSearch = async () => {
+    if (!ocrQuery.trim()) { setOcrError("Enter on-screen text to search"); return }
+    setOcrError(""); setOcrLoading(true)
+    // xoá kết quả ASR standalone để bảng frame OCR hiện ra
+    setAsrResults([]); setAsrError("")
+    try {
+      const resp = await ocrSearch({ query: ocrQuery, k: 100 })
+      if (resp.data?.ok) setRetrival((resp.data.results || []).filter(Boolean))
+      else { setOcrError(resp.data?.error || "OCR search failed"); setRetrival([]) }
+    } catch (err) {
+      setOcrError(err?.response?.data?.error || err.message || "Backend connection error"); setRetrival([])
+    } finally { setOcrLoading(false) }
+  }
 
   // normalize retrieval into rows of 5
   const rows = [];
@@ -286,14 +261,11 @@ function Jobs() {
 
     const basePayload = {
       k: kNum,
-      detection: detection || "",
-      objects: obj || "",
       device: "cpu",
-      operator: logic || "AND",
       page: 1,
       page_size: pageSize || 10,
-      text: text || "",
-      temporal_fuzzy: tempFuzzy || -1,
+      asr: asrMode === "merge" ? (asrQuery || undefined) : undefined,
+      ocr: ocrMode === "merge" ? (ocrQuery || undefined) : undefined,
       language: lang
 
     };
@@ -304,12 +276,7 @@ function Jobs() {
       query2: screen2 || undefined,
       query3: screen3 || undefined,
       model: model || "beit3",
-      k: kNum,
-      device: "cpu",
       augment: status,
-      page: 1,
-      page_size: pageSize || 10,
-      temporal_fuzzy: tempFuzzy || -1
     } : basePayload;
 
     await doSearch(payload);
@@ -339,54 +306,54 @@ function Jobs() {
             overflowY: "auto",
             background: "#fff",
           }}>
-            <ItemPalette items={availableItems} />
-
-            <div style={{ display: "flex", flexDirection: "column" }}>
-
-
-              <div style={{ marginTop: 8 }}>
-                <Radio.Group onChange={(e) => setLogic(e.target.value)} value={logic}>
-                  <Space>
-                    <Radio value="AND">AND</Radio>
-                    <Radio value="OR">OR</Radio>
-                  </Space>
-                </Radio.Group>
-              </div>
+            {/* ASR search (thay cho object search) — nội dung lời nói, 2 mode */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>ASR search — spoken content</div>
+              <Radio.Group value={asrMode} onChange={(e) => setAsrMode(e.target.value)}>
+                <Radio value="standalone">Standalone</Radio>
+                <Radio value="merge">Merge into main search</Radio>
+              </Radio.Group>
+              <Input.TextArea
+                placeholder="e.g. the chairman announces the opening"
+                value={asrQuery}
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                onChange={(e) => setAsrQuery(e.target.value)}
+              />
+              {asrMode === "standalone" ? (
+                <Button type="primary" loading={asrLoading} onClick={runAsrSearch}>
+                  ASR Search
+                </Button>
+              ) : (
+                <div style={{ fontSize: 12, color: "#888" }}>
+                  ASR content merges into the main search (Screen 1/2/3) to push matching frames to the top.
+                </div>
+              )}
             </div>
 
-            <DropArea
-              droppedItems={droppedItems}
-              onDrop={handleDrop}
-              onRemove={handleRemove}
-              onStateChange={setDetection}
-            />
-
-            <Input
-              style={{ width: "93%" }}
-              placeholder="Object fillin (ex: car1, car2)"
-              value={obj}
-              onChange={(e) => setObj(e.target.value)}
-            />
-
-            <Input
-              style={{ width: "93%" }}
-              placeholder="Text indicator ( ex: apple )"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-
-            <Select
-              style={{ width: '20%' }}
-              value={tempFuzzy}
-              onChange={(value) => setTempFuzzy(value)}
-            >
-              <Option value={-1}>-1</Option>
-              <Option value={1}>1</Option>
-              <Option value={2}>2</Option>
-
-              <Option value={3}>3</Option>
-
-            </Select>
+            {/* OCR search — chữ trên màn hình, cùng 2 mode */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>OCR search — on-screen text</div>
+              <Radio.Group value={ocrMode} onChange={(e) => setOcrMode(e.target.value)}>
+                <Radio value="standalone">Standalone</Radio>
+                <Radio value="merge">Merge into main search</Radio>
+              </Radio.Group>
+              <Input
+                placeholder='e.g. proper noun, score "3 - 1"'
+                value={ocrQuery}
+                onChange={(e) => setOcrQuery(e.target.value)}
+                onPressEnter={ocrMode === "standalone" ? runOcrSearch : undefined}
+              />
+              {ocrMode === "standalone" ? (
+                <Button type="primary" loading={ocrLoading} onClick={runOcrSearch}>
+                  OCR Search
+                </Button>
+              ) : (
+                <div style={{ fontSize: 12, color: "#888" }}>
+                  OCR text merges into the main search (Screen 1/2/3) to push matching frames to the top.
+                </div>
+              )}
+              {ocrError && <div style={{ color: "#d4380d", fontSize: 12 }}>{ocrError}</div>}
+            </div>
           </div>
 
         </Drawer>
@@ -533,7 +500,11 @@ function Jobs() {
 
           {/* Result area */}
           <div style={{ marginTop: 20 }}>
-            {retrival.length > 0 ? (
+            {selectAns === "trake" ? (
+              <TrakePanel language={lang === true} />
+            ) : asrActive ? (
+              <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
+            ) : retrival.length > 0 ? (
               <Table
                 style={{ width: '100%', margin: '0', background: '#fff' }}
                 dataSource={dataSource}

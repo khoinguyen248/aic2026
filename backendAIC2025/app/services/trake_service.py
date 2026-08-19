@@ -47,6 +47,14 @@ def candidate_budget(n_events: int) -> int:
     return 2 if n_events <= 10 else 1
 
 
+def _cand_pairs(cands):
+    """[(frame_id_hoặc_idx, score)] từ list dict ứng viên keyframe (frame_id thiếu -> dùng idx)."""
+    return [
+        (c["frame_id"] if c.get("frame_id") is not None else c["idx"], c["score"])
+        for c in cands
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Encode text / ảnh bằng CLIP (leg duy nhất đã sẵn sàng end-to-end trong repo này:
 # có preprocess + encode_image + encode_text cùng không gian. BEiT-3 hiện thiếu
@@ -188,6 +196,14 @@ def allocate_video_slots(video_candidates, total_slots=100, confidence_threshold
 # ---------------------------------------------------------------------------
 
 def locate_events_exact(event_vecs, faiss_index, mongo_collection, L, V, topk=3):
+    """Tầng 2: với mỗi event, tính cosine trên toàn bộ keyframe của video (reconstruct vector
+    từ FAISS flat), ép thứ tự thời gian (chỉ xét keyframe sau vị trí top của event trước).
+
+    Trả về mỗi event 1 dict:
+      - center_frame_id / center_idx: keyframe cosine cao nhất -> dùng làm TÂM cửa sổ tier-3 (Case 1).
+      - cands: top-k ứng viên đã RERANK BẰNG THUẬT TOÁN (peak/prominence) trên đường cong điểm
+        keyframe -> dùng trực tiếp cho Case 2 (2 tầng, không có video).
+    """
     docs = list(
         mongo_collection.find({"L": L, "V": V}, {"_id": 0, "idx": 1, "frame_id": 1, "fps": 1}).sort("idx", 1)
     )
@@ -201,26 +217,39 @@ def locate_events_exact(event_vecs, faiss_index, mongo_collection, L, V, topk=3)
     prev_pos = -1
     for ev_vec in event_vecs:
         scores = vecs @ ev_vec
-        masked = scores.copy()
-        if prev_pos >= 0:
-            masked[: prev_pos + 1] = NEG_INF
-        valid = np.where(np.isfinite(masked))[0]
-        if len(valid) == 0:
-            valid = np.arange(len(scores))
-            masked = scores
-        order = valid[np.argsort(-masked[valid])][:topk]
 
-        cands = [
+        lo = prev_pos + 1
+        if lo >= len(scores):
+            lo = 0  # hết chỗ hợp lệ -> nới ràng buộc để không trả rỗng
+        pos_range = np.arange(lo, len(scores))
+        sub_scores = scores[pos_range]
+
+        # tâm cửa sổ tier-3 = cosine cao nhất (an toàn, không đổi hành vi Case 1)
+        cos_top_pos = int(pos_range[int(np.argmax(sub_scores))])
+
+        # ứng viên Case 2 = rerank thuật toán (peak-detection) trên đường cong keyframe
+        peak_order = _rank_by_peak(sub_scores, topk)
+        cands = []
+        for lp in peak_order:
+            p = int(pos_range[lp])
+            cands.append(
+                {
+                    "idx": int(idxs[p]),
+                    "frame_id": docs[p].get("frame_id"),
+                    "fps": docs[p].get("fps"),
+                    "score": float(scores[p]),
+                }
+            )
+
+        results.append(
             {
-                "idx": int(idxs[p]),
-                "frame_id": docs[p].get("frame_id"),
-                "fps": docs[p].get("fps"),
-                "score": float(scores[p]),
+                "center_frame_id": docs[cos_top_pos].get("frame_id"),
+                "center_idx": int(idxs[cos_top_pos]),
+                "center_score": float(scores[cos_top_pos]),
+                "cands": cands,
             }
-            for p in order
-        ]
-        results.append(cands)
-        prev_pos = int(order[0])
+        )
+        prev_pos = cos_top_pos
 
     return results
 
@@ -232,14 +261,14 @@ def locate_events_exact(event_vecs, faiss_index, mongo_collection, L, V, topk=3)
 
 def tier3_globally_ready():
     if not Config.TRAKE_TIER3_ENABLED:
-        return False, "TRAKE_TIER3_ENABLED=false -> case 2 (không tinh chỉnh)"
+        return False, "TRAKE_TIER3_ENABLED=false -> case 2 (no refinement)"
     if not Config.VIDEO_ROOT or not os.path.isdir(Config.VIDEO_ROOT):
-        return False, f"VIDEO_ROOT không tồn tại (USB chưa gắn?): {Config.VIDEO_ROOT!r}"
+        return False, f"VIDEO_ROOT not found (USB not mounted?): {Config.VIDEO_ROOT!r}"
     try:
         import cv2  # noqa: F401
     except ImportError:
-        return False, "opencv-python (cv2) chưa được cài trong môi trường này"
-    return True, "tier 3 sẵn sàng"
+        return False, "opencv-python (cv2) is not installed in this environment"
+    return True, "tier 3 ready"
 
 
 def resolve_video_path(L, V, mongo_collection):
@@ -267,14 +296,10 @@ def resolve_video_path(L, V, mongo_collection):
     return None
 
 
-def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
-    """Rerank thuật toán, không cần model rời: thay vì chỉ argmax điểm cosine, ưu tiên
-    frame nào là ĐỈNH RÕ RỆT (prominence cao) trên đường cong điểm số theo thời gian —
-    tách được "khoảnh khắc" khỏi 1 dải phẳng nhiều frame gần giống hệt nhau mà cosine
-    không phân biệt nổi. Nếu thiếu scipy hoặc không tìm được đỉnh nào, rơi về argmax
-    thường (hành vi y hệt bản cũ trước khi có hàm này -> không bao giờ tệ hơn)."""
+def _rank_by_peak(scores, topk):
+    """Trả về danh sách CHỈ SỐ vào `scores`, xếp: đỉnh rõ rệt trước (theo prominence rồi điểm),
+    sau đó phần còn lại theo điểm. Thiếu scipy / không có đỉnh -> argsort thường (không tệ hơn)."""
     scores = np.asarray(scores, dtype=np.float64)
-
     if len(scores) >= 3:
         try:
             from scipy.signal import find_peaks
@@ -287,25 +312,32 @@ def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
                 )
                 ranked_idx = [p[0] for p in ranked_peaks]
                 remaining = [i for i in np.argsort(-scores).tolist() if i not in ranked_idx]
-                ranked_idx = (ranked_idx + remaining)[:topk]
-                return [(int(frame_ids[i]), float(scores[i])) for i in ranked_idx]
+                return (ranked_idx + remaining)[:topk]
         except ImportError:
             pass
+    return np.argsort(-scores)[:topk].tolist()
 
-    order = np.argsort(-scores)[:topk]
+
+def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
+    """Rerank thuật toán, không cần model rời: thay vì chỉ argmax điểm cosine, ưu tiên
+    frame nào là ĐỈNH RÕ RỆT (prominence cao) trên đường cong điểm số theo thời gian —
+    tách được "khoảnh khắc" khỏi 1 dải phẳng nhiều frame gần giống hệt nhau mà cosine
+    không phân biệt nổi."""
+    scores = np.asarray(scores, dtype=np.float64)
+    order = _rank_by_peak(scores, topk)
     return [(int(frame_ids[i]), float(scores[i])) for i in order]
 
 
 def qwen_rerank_ready():
     if not Config.TRAKE_QWEN_RERANK_ENABLED:
-        return False, "TRAKE_QWEN_RERANK_ENABLED=false -> chỉ dùng thuật toán (peak detection)"
+        return False, "TRAKE_QWEN_RERANK_ENABLED=false -> algorithm only (peak detection)"
     if _qwen_load_failed:
-        return False, "Qwen local load lỗi trước đó -> chỉ dùng thuật toán"
+        return False, "Qwen local load failed earlier -> algorithm only"
     try:
         import transformers  # noqa: F401
     except ImportError:
-        return False, "transformers chưa được cài -> chỉ dùng thuật toán"
-    return True, "Qwen2.5-VL (local) sẵn sàng"
+        return False, "transformers not installed -> algorithm only"
+    return True, "Qwen2.5-VL (local) ready"
 
 
 def _load_qwen():
@@ -532,8 +564,8 @@ def run_trake(
     if not video_candidates:
         return {
             "ok": False,
-            "error": "Không tìm được video khớp đủ tất cả event trong top-M ứng viên (đã thử tới top_m="
-            f"{attempt_m}). Thử tăng top_m hoặc kiểm tra lại mô tả event.",
+            "error": "No video matched all events within the top-M candidates (tried up to top_m="
+            f"{attempt_m}). Increase top_m or revise the event descriptions.",
         }
 
     slots = allocate_video_slots(video_candidates, total_slots=max_combos, confidence_threshold=confidence_threshold)
@@ -560,14 +592,16 @@ def run_trake(
         candidates_per_event = []
         qwen_used_events = 0
         if use_tier3:
+            # Case 1: tinh chỉnh frame gốc quanh tâm cosine + (peak-detection trong refine) + Qwen khi tie
             prev_fine = None
-            for ev_vec, ev_text, cands in zip(event_vecs, events_text, coarse):
+            for ev_vec, ev_text, ev_res in zip(event_vecs, events_text, coarse):
+                center = ev_res["center_frame_id"]
                 fine, used_qwen = refine_event_fine(
-                    video_path, ev_vec, ev_text, cands[0]["frame_id"], prev_fine, clip_bundle, device,
+                    video_path, ev_vec, ev_text, center, prev_fine, clip_bundle, device,
                     tier3_radius, tier3_stride, tier3_topk,
                 )
-                if fine is None:
-                    fine = [(c["frame_id"], c["score"]) for c in cands if c.get("frame_id") is not None]
+                if fine is None:  # thiếu video/frame_id -> fallback ứng viên keyframe đã rerank thuật toán
+                    fine = _cand_pairs(ev_res["cands"])
                 if used_qwen:
                     qwen_used_events += 1
                 candidates_per_event.append(fine)
@@ -575,15 +609,14 @@ def run_trake(
                     prev_fine = fine[0][0]
             use_tier3 = bool(candidates_per_event) and all(candidates_per_event)
         else:
-            for cands in coarse:
-                fallback = [(c["frame_id"], c["score"]) for c in cands if c.get("frame_id") is not None]
-                if not fallback:
-                    fallback = [(c["idx"], c["score"]) for c in cands]  # frame_id thiếu -> nộp idx keyframe
-                candidates_per_event.append(fallback)
+            # Case 2: chỉ 2 tầng, dùng thẳng ứng viên keyframe đã RERANK BẰNG THUẬT TOÁN (peak-detection)
+            for ev_res in coarse:
+                candidates_per_event.append(_cand_pairs(ev_res["cands"]))
 
         any_tier3 = any_tier3 or use_tier3
         qwen_used_events_total += qwen_used_events
 
+        sample = mongo_collection.find_one({"L": L, "V": V}, {"_id": 0, "fps": 1, "video_url": 1}) or {}
         combos = build_cartesian_submissions(candidates_per_event, max_combos=slot_count)
         per_video.append(
             {
@@ -591,6 +624,8 @@ def run_trake(
                 "L": L,
                 "V": V,
                 "video_score": video["score"],
+                "fps": sample.get("fps"),
+                "video_url": sample.get("video_url"),
                 "tier3_used": use_tier3,
                 "qwen_rerank_used_events": qwen_used_events,
                 "combos": combos,
@@ -603,9 +638,13 @@ def run_trake(
             submissions.append({"video_id": r["video_id"], "frame_ids": combo})
     submissions = submissions[:max_combos]
 
+    rerank_method = "qwen" if qwen_used_events_total > 0 else "algorithm"
+
     return {
         "ok": True,
         "mode": "case1_full" if any_tier3 else "case2_coarse",
+        "tier": 3 if any_tier3 else 2,
+        "rerank_method": rerank_method,
         "tier3_globally_ready": ready,
         "tier3_reason": reason,
         "qwen_rerank_globally_ready": qwen_ready,

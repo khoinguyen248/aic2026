@@ -118,7 +118,7 @@ function Ansbox1({inf, close}) {
                             onClick={addFrameInput}
                             style={{ marginRight: '10px' }}
                         >
-                            + Thêm Frame
+                            + Add Frame
                         </Button>
                     </div>
                     
@@ -138,7 +138,7 @@ function Ansbox1({inf, close}) {
                                 onClick={() => removeFrameInput(index)}
                                 disabled={frameIds.length === 1}
                             >
-                                Xóa
+                                Delete
                             </Button>
                         </div>
                     ))}
@@ -153,7 +153,7 @@ function Ansbox1({inf, close}) {
                     const result = resp?.data
                     console.log(result)
                 }}>
-                    <p>Nộp nha ku</p>
+                    <p>Submit</p>
                 </Button>
 
             </div>
