@@ -1,7 +1,17 @@
 .venv/
 .env
 
-# Folders to ignore
-beit3/
+# Legacy folders
+/beit3/
 embedding-info/
 metadata/
+
+# Search data nằm ngoài Git
+embedding-26/
+qdrant_storage/
+
+# Model, checkpoint và embedding
+*.pth
+*.pt
+*.ckpt
+*.npy

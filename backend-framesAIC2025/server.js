@@ -2,12 +2,18 @@ import express from "express";
 import path from "path";
 
 const app = express();
+const port = Number(process.env.PORT || 8080);
+const keyframesPath = path.resolve(
+  process.env.KEYFRAMES_PATH || path.join(process.cwd(), "keyframes"),
+);
 
-// đường dẫn tuyệt đối tới folder keyframes
-const keyframesPath = path.join("C:/Users/PC/Downloads/Downloads/keyframes");
-// serve static folder
-app.use("/keyframes", express.static(keyframesPath));
+app.get("/health", (_request, response) => {
+  response.type("text").send("ok\n");
+});
 
-app.listen(8080, () => {
-  console.log("Keyframes server running at http://localhost:8080/keyframes");
+app.use("/Keyframes", express.static(keyframesPath));
+
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Keyframes server listening on port ${port}`);
+  console.log(`Serving files from ${keyframesPath}`);
 });

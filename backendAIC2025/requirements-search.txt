@@ -1,0 +1,29 @@
+# PyTorch/torchvision được cài riêng trong Dockerfile từ CPU wheel index.
+# torchscale được cài --no-deps vì metadata của 0.2.0 khóa timm==0.4.12,
+# trong khi Jina/PE cần timm mới hơn.
+timm==1.0.28
+Pillow==11.3.0
+blobfile==3.0.0
+mypy==1.17.1
+numpy==1.26.4
+pytest==8.4.1
+requests==2.32.3
+einops==0.8.1
+scipy==1.16.1
+ftfy==6.3.1
+opencv-python==4.11.0.86
+sentencepiece==0.2.1
+pyarrow==18.1.0
+torchmetrics==0.7.3
+transformers==5.15.0
+fairscale==0.4.0
+protobuf==3.20.3
+open-clip-torch==2.32.0
+torchinfo==1.8.0
+wget==3.2
+pymongo==4.14.0
+tensorboardX==2.6.4
+qdrant-client==1.15.1
+
+# jina
+peft

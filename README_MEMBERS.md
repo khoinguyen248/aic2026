@@ -1,24 +1,30 @@
-# Hướng dẫn setup AIC 2026 - TO BE UPDATED
+# Hướng dẫn dành cho thành viên AIC 2026
 
+Tài liệu này dành cho thành viên phát triển hoặc cần chạy toàn bộ hệ thống trên máy cá nhân. Nếu chỉ sử dụng website do main dev vận hành, đọc `README_USER.md` và mở địa chỉ được cung cấp; không cần cài Docker hay tải model.
 
-## 1. Tool
+## 1. Thành phần hiện tại
 
-- Git.
-- Docker Desktop với Linux containers.
-- Node.js 20 nếu chạy frontend ngoài Docker.
-- Python 3.11 nếu chạy backend ngoài Docker.
+Hệ thống chạy bằng Docker Compose gồm:
 
-Kiểm tra:
+- Frontend: `http://localhost:8088`.
+- Backend API: `http://localhost:5000`.
+- Frame server: `http://localhost:8081`.
+- Qdrant: lưu collection vector `beit3`, `jina`, `pe`.
+- MongoDB Atlas Local: tìm kiếm OCR/ASR.
+
+BEiT-3 text search đã hoạt động ở bước đầu. Jina và PE cần nhiều thời gian/RAM hơn; không nên dùng PE trên máy cấu hình thấp.
+
+## 2. Chuẩn bị
+
+Cài Git và Docker Desktop (Linux containers), sau đó kiểm tra:
 
 ```powershell
 git --version
 docker version
 docker compose version
-node --version
-py -3.11 --version
 ```
 
-## 2. Lấy source code
+Clone source và tạo file môi trường:
 
 ```powershell
 git clone https://github.com/khoinguyen248/aic2026.git
@@ -26,19 +32,136 @@ cd aic2026
 Copy-Item .env.example .env
 ```
 
-Môi trường local mặc định chưa sử dụng MongoDB và search model:
+Xếp dữ liệu và đặt đúng cấu trúc:
 
-```env
-MONGO_ENABLED=false
-SEARCH_ENABLED=false
-USER_ROUTES_ENABLED=false
+```text
+runtime-data/
+├── checkpoints/
+│   └── beit3_large_patch16_224.pth
+├── keyframes/
+│   ├── L21_V001/
+│   └── ...
+├── metadata/
+    asr
+    ocr
+└── qdrant_storage/
+    ├── aliases/
+    ├── collections/
+    │   ├── beit3/
+    │   ├── jina/
+    │   └── pe/
+    └── raft_state.json
 ```
 
-Không commit file `.env`.
 
-## 3. Quy trình branch
+## 3. Cấu hình `.env`
 
-Cập nhật `main` và tạo branch mới:
+Tạo secret riêng cho máy và bật các chức năng đã có dữ liệu:
+
+```env
+SECRET_KEY=thay-bang-chuoi-ngau-nhien
+
+SEARCH_ENABLED=true
+SEARCH_DEVICE=cpu
+SEARCH_MODEL_CACHE_SIZE=1
+BEIT3_CHECKPOINT_PATH=/models/beit3_large_patch16_224.pth
+QDRANT_URL=http://qdrant:6333
+
+MONGO_ROOT_USER=aicadmin
+MONGO_ROOT_PASSWORD=thay-bang-password-rieng
+MONGO_SEARCH_ENABLED=true
+MONGO_SEARCH_URI=mongodb://aicadmin:PASSWORD@mongodb:27017/?authSource=admin&directConnection=true
+MONGO_SEARCH_DB=aic2026
+```
+
+`MONGO_ROOT_PASSWORD` và password trong `MONGO_SEARCH_URI` phải giống nhau. Không commit `.env`.
+
+Nếu chưa import OCR/ASR, đặt:
+
+```env
+MONGO_SEARCH_ENABLED=false
+```
+
+## 4. Khởi tạo MongoDB lần đầu
+
+Compose sử dụng ba named volume ngoài. Mỗi máy chỉ cần tạo một lần:
+
+```powershell
+docker volume create aic2026_mongodb_data
+docker volume create aic2026_mongodb_config
+docker volume create aic2026_mongodb_mongot
+```
+
+OCR/ASR phải được import bằng package MongoDB riêng do team cung cấp. Không cần import lại sau mỗi lần restart Docker vì dữ liệu nằm trong volume.
+
+## 5. Chạy hệ thống
+
+Tại thư mục gốc dự án:
+
+```powershell
+docker compose up -d --build
+docker compose ps
+```
+
+Kiểm tra:
+
+```powershell
+Invoke-RestMethod http://localhost:5000/health/app
+Invoke-RestMethod http://localhost:5000/search/health
+(Invoke-RestMethod http://localhost:6333/collections).result.collections
+```
+
+Mở website:
+
+```text
+http://localhost:8088
+```
+
+Để kiểm tra bước đầu: chọn Visual Search, chọn `beit3`, nhập mô tả bằng văn bản và tìm kiếm.
+
+## 6. Khi Qdrant hiện `grey`
+
+Storage khôi phục từ ZIP có thể ở trạng thái chờ optimization. Kích hoạt optimizer mà không thay đổi vector:
+
+```powershell
+"beit3", "jina", "pe" | ForEach-Object {
+    Invoke-RestMethod `
+        -Method Patch `
+        -Uri "http://localhost:6333/collections/$_" `
+        -ContentType "application/json" `
+        -Body '{"optimizers_config":{}}'
+}
+```
+
+Chờ trạng thái `grey -> yellow -> green`. Không restart Qdrant khi đang `yellow`.
+
+Tuyệt đối không chạy lệnh sau trên storage của team:
+
+```powershell
+python -m search_engine.search build --model beit3 --recreate
+```
+
+`--recreate` sẽ xóa collection hiện tại trước khi tạo lại. `qdrant_storage` của team đã chứa collection hoàn chỉnh nên không cần build lại.
+
+## 7. Dừng và chạy lại
+
+Dừng container nhưng giữ toàn bộ dữ liệu:
+
+```powershell
+docker compose down
+```
+
+Chạy lại:
+
+```powershell
+docker compose up -d
+```
+
+Không xóa `runtime-data/qdrant_storage`, không dùng `docker compose down -v` và không xóa Mongo volume nếu chưa có backup.
+
+## 8. Git rules
+
+Cập nhật source và tạo branch riêng:
 
 ```powershell
 git checkout main
@@ -46,99 +169,14 @@ git pull
 git checkout -b feature/ten-tinh-nang
 ```
 
-Quy ước tên branch:
-
-```text
-feature/frame-server
-feature/qdrant-ingestion
-fix/frontend-image-url
-chore/update-dependencies
-```
-
-Không push trực tiếp vào `main`.
-
-## 4. Chạy ứng dụng local
-
-```powershell
-docker compose up -d --build
-docker compose ps
-```
-
-Mở frontend:
-
-```text
-http://localhost:8088
-```
-
-Kiểm tra backend:
-
-```powershell
-Invoke-RestMethod http://localhost:8088/api/health/app
-```
-
-Dừng môi trường local:
-
-```powershell
-docker compose down
-```
-
-## 5. Chạy kiểm tra trước khi push
-
-Backend tests:
-
-```powershell
-docker build `
-  --target test `
-  -t aic2026-backend-test `
-  ./backendAIC2025
-
-docker run --rm aic2026-backend-test
-```
-
-Frontend lint:
-
-```powershell
-docker build `
-  --target test `
-  -t aic2026-frontend-test `
-  ./frontend-final/vite-project
-```
-
-Kiểm tra Compose:
+Trước khi push:
 
 ```powershell
 docker compose config --quiet
 docker compose up -d --build --wait
-```
-
-Chỉ tạo Pull Request khi các kiểm tra đều thành công.
-
-## 6. Commit và Pull Request
-
-```powershell
 git status
-git add .
-git commit -m "Mô tả thay đổi"
-git push -u origin feature/ten-tinh-nang
 ```
 
-Pull Request cần ghi rõ:
+Không push trực tiếp vào `main`. Pull Request cần ghi nội dung thay đổi, cách kiểm tra, biến môi trường mới và ảnh hưởng tới MongoDB, Qdrant, keyframes hoặc model.
 
-- Nội dung thay đổi.
-- Cách kiểm tra.
-- Env key mới nếu có.
-- Ảnh giao diện nếu có thay đổi UI.
-- Ảnh hưởng tới API, MongoDB, frames hoặc model.
-- Migration dữ liệu nếu có.
-
-## 7. Những file không được commit
-
-- `.env` và `.env.production`.
-- API key, PAT, password hoặc database URI.
-- Keyframes, video và audio.
-- Checkpoint `.pth`, `.pt`, `.ckpt`.
-- Embeddings `.npy`.
-- Virtual environment và `node_modules`.
-
-Nếu một credential từng xuất hiện trong Git, phải báo maintainer để rotate; chỉ xóa khỏi commit mới là chưa đủ.
 

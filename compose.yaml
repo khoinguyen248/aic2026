@@ -5,6 +5,7 @@ services:
     build:
       context: ./backendAIC2025
       dockerfile: Dockerfile
+      target: "${BACKEND_BUILD_TARGET:-production}"
 
     restart: unless-stopped
 
@@ -15,32 +16,84 @@ services:
       HOST: 0.0.0.0
       PORT: 5000
       DEBUG: "false"
+
+      # MongoDB cũ của ứng dụng
       MONGO_ENABLED: "false"
-      SEARCH_ENABLED: "false"
       USER_ROUTES_ENABLED: "false"
+
+      # MongoDB OCR/ASR mới
+      MONGO_SEARCH_ENABLED: "${MONGO_SEARCH_ENABLED:-false}"
+      MONGO_SEARCH_URI: "${MONGO_SEARCH_URI:-}"
+      MONGO_SEARCH_DB: "${MONGO_SEARCH_DB:-aic2026}"
+
+      # Semantic search/Qdrant chỉ bật khi dữ liệu và API đã được kiểm tra xong
+      SEARCH_ENABLED: "${SEARCH_ENABLED:-false}"
+      BEIT3_CHECKPOINT_PATH: "${BEIT3_CHECKPOINT_PATH:-/models/beit3_large_itc_patch16_224.pth}"
+      EMBEDDING_ROOT: "${EMBEDDING_ROOT:-/data/embeddings}"
+      METADATA_ROOT: "${METADATA_ROOT:-/data/metadata}"
+      KEYFRAMES_PATH: "${KEYFRAMES_PATH:-/data/keyframes}"
+      QDRANT_URL: "${QDRANT_URL:-http://qdrant:6333}"
+      SEARCH_DEVICE: "${SEARCH_DEVICE:-cpu}"
+      SEARCH_MODEL_CACHE_SIZE: "${SEARCH_MODEL_CACHE_SIZE:-1}"
 
     ports:
       - "${BACKEND_PORT:-5000}:5000"
+
+    volumes:
+      - "./runtime-data/checkpoints:/models:ro"
+      - "./runtime-data/keyframes:/data/keyframes:ro"
+      - huggingface_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
 
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health/app')"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health/app')"
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 10s
 
-  frontend:
+  frame-server:
+    image: "${FRAME_SERVER_IMAGE:-aic2026-frame-server}:${IMAGE_TAG:-local}"
 
+    build:
+      context: ./backend-framesAIC2025
+      dockerfile: Dockerfile
+
+    restart: unless-stopped
+
+    environment:
+      PORT: 8080
+      KEYFRAMES_PATH: /data/keyframes
+
+    ports:
+      - "${FRAME_SERVER_PORT:-8081}:8080"
+
+    volumes:
+      - "./runtime-data/keyframes:/data/keyframes:ro"
+
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8080/health
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  frontend:
     image: "${FRONTEND_IMAGE:-aic2026-frontend}:${IMAGE_TAG:-local}"
-    
+
     build:
       context: ./frontend-final/vite-project
       dockerfile: Dockerfile
-
 
     restart: unless-stopped
 
@@ -49,6 +102,8 @@ services:
 
     depends_on:
       backend-api:
+        condition: service_healthy
+      frame-server:
         condition: service_healthy
 
     healthcheck:
@@ -63,3 +118,53 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  mongodb:
+    image: mongodb/mongodb-atlas-local:preview
+
+    restart: unless-stopped
+
+    hostname: mongodb
+
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: "${MONGO_ROOT_USER}"
+      MONGODB_INITDB_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD}"
+
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - mongodb_mongot:/data/mongot
+
+  qdrant:
+    image: qdrant/qdrant:latest
+
+    restart: unless-stopped
+
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+
+    volumes:
+      - "./runtime-data/qdrant_storage:/qdrant/storage"
+
+volumes:
+  mongodb_data:
+    external: true
+    name: aic2026_mongodb_data
+
+  mongodb_config:
+    external: true
+    name: aic2026_mongodb_config
+
+  mongodb_mongot:
+    external: true
+    name: aic2026_mongodb_mongot
+
+  huggingface_cache:
+    name: aic2026_huggingface_cache
+
+  torch_cache:
+    name: aic2026_torch_cache

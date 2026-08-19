@@ -26,6 +26,10 @@ class Config:
     MONGO_URI = os.getenv("MONGO_URI")
     MONGO_URI2 = os.getenv("MONGO_URI2")
 
+    MONGO_SEARCH_ENABLED = env_bool("MONGO_SEARCH_ENABLED", False)
+    MONGO_SEARCH_URI = os.getenv("MONGO_SEARCH_URI")
+    MONGO_SEARCH_DB = os.getenv("MONGO_SEARCH_DB", "aic2026")
+
     SEARCH_ENABLED = env_bool("SEARCH_ENABLED", False)
     USER_ROUTES_ENABLED = env_bool("USER_ROUTES_ENABLED", False)
 

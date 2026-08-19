@@ -16,6 +16,11 @@ const ANS = axios.create({
 
 
 export const search = (data2) => API.post('/search/collection', data2)
+export const searchOcr = (data) => API.post('/search/ocr', data)
+export const searchAsr = (data) => API.post('/search/asr', data)
+export const searchImage = (data) => API.post('/search/image', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+})
 export const searchinfo = (data3) => API.post('/search/infoframes', data3)
 export const answer = (data4) => ANS.post('/api/v2/submit/06236d7d-368e-44ac-a388-c955cb374a7d?session=t5c14CtTasq641UNhGKBsQIHz_FBGo5I', data4)
 

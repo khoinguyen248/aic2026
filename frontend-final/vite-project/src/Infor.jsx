@@ -48,7 +48,7 @@ useEffect(() => {
             let pathVal = f.path || "";
             const imageUrl = pathVal.startsWith("http")
               ? pathVal
-              : `http://localhost:8080/${pathVal.replace(/^\/+/, "")}`;
+              : `/frames/${pathVal.replace(/^\/+/, "")}`;
               console.log("f.idx:", f.idx, "typeof:", typeof f.idx);
               const time = f.frame_stamp
    return (

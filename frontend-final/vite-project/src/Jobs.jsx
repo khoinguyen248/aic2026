@@ -1,21 +1,17 @@
 // Jobs.jsx
 import { useState } from 'react'
 import { MdManageSearch } from "react-icons/md";
-import { Checkbox, Select, Space } from "antd";
+import { Button, Checkbox, Drawer, Input, Select, Table, Upload } from "antd";
 import { FaCirclePlay } from "react-icons/fa6";
 import { IoIosAddCircle } from "react-icons/io";
 
 import './App.css'
-import { Table, Button, Drawer, Radio, Input } from 'antd'
-import ItemPalette from './ItemPalette';
-import DropArea from './DropArea';
-import { search } from './api';
+import { search, searchAsr, searchImage, searchOcr } from './api';
 import { Option } from 'antd/es/mentions';
-import { MenuOutlined } from "@ant-design/icons";
+import { InboxOutlined, MenuOutlined } from "@ant-design/icons";
 import { CiLink } from "react-icons/ci";
 import Infor from './Infor';
 import { FaFolderOpen } from "react-icons/fa";
-import { AiFillBulb } from "react-icons/ai";
 import YoutubePlayer from './YoutubePlayer.jsx';
 import Ansbox from './Ansbox.jsx';
 import Ansbox1 from './Ansbox1.jsx';
@@ -26,68 +22,13 @@ function Jobs() {
   const openDrawer = () => setDrawerOpen(true);
   const closeDrawer = () => setDrawerOpen(false);
 
-  // palette items
-  const availableItems = [
-    // Đã có sẵn
-    { id: 'person', label: 'person', icon: '👤' },
-    { id: 'man', label: 'man', icon: '👨' },
-    { id: 'woman', label: 'woman', icon: '👩' },
-    { id: 'human_face', label: 'human_face', icon: '🙂' },
-    { id: 'motorcycle', label: 'motorcycle', icon: '🏍️' },
-    { id: 'bicycle', label: 'bicycle', icon: '🚲' },
-    { id: 'car', label: 'car', icon: '🚗' },
-    { id: 'truck', label: 'truck', icon: '🚚' },
-    { id: 'boat', label: 'boat', icon: '⛵' },
-    { id: 'airplane', label: 'airplane', icon: '✈️' },
-    { id: 'cat', label: 'cat', icon: '🐱' },
-    { id: 'dog', label: 'dog', icon: '🐶' },
-    { id: 'cow', label: 'cow', icon: '🐄' },
-    { id: 'bird', label: 'bird', icon: '🐦' },
-    { id: 'umbrella', label: 'umbrella', icon: '☂️' },
-    { id: 'chair', label: 'chair', icon: '🪑' },
-    { id: 'tv', label: 'tv', icon: '📺' },
-    { id: 'laptop', label: 'laptop', icon: '💻' },
-    { id: 'house', label: 'house', icon: '🏠' },
-    { id: 'cell_phone', label: 'cell_phone', icon: '📱' },
-    { id: 'flower', label: 'flower', icon: '🌸' },
-    { id: 'tree', label: 'tree', icon: '🌳' },
-    { id: 'book', label: 'book', icon: '📖' },
-    { id: 'glasses', label: 'glasses', icon: '👓' },
-    { id: 'cake', label: 'cake', icon: '🎂' },
-    { id: 'horse', label: 'horse', icon: '🐎' },
-    { id: 'sports_equipment', label: 'sports_equipment', icon: '🏋️' },
-    { id: 'sports_ball', label: 'sports_ball', icon: '⚽' },
-    { id: 'bench', label: 'bench', icon: '🪑' },
-    { id: 'couch', label: 'couch', icon: '🛋️' },
-    { id: 'traffic_sign', label: 'traffic_sign', icon: '🚸' },
-
-    // Colors
-    { id: 'black', label: 'black', icon: '⚫' },
-    { id: 'white', label: 'white', icon: '⚪' },
-    { id: 'red', label: 'red', icon: '🔴' },
-    { id: 'green', label: 'green', icon: '🟢' },
-    { id: 'yellow', label: 'yellow', icon: '🟡' },
-    { id: 'blue', label: 'blue', icon: '🔵' },
-    { id: 'brown', label: 'brown', icon: '🟤' },
-    { id: 'purple', label: 'purple', icon: '🟣' },
-    { id: 'pink', label: 'pink', icon: '🌸' },
-    { id: 'orange', label: 'orange', icon: '🟠' },
-    { id: 'gray', label: 'gray', icon: '⚙️' }
-
-  ];
-
-
   // UI state
   const [status, setStatus] = useState(false);
-  const [logic, setLogic] = useState("AND");
-  const [text, setText] = useState("")
-  const [droppedItems, setDroppedItems] = useState([]);
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [screen1, setScreen1] = useState("");
   const [screen2, setScreen2] = useState("");
   const [screen3, setScreen3] = useState("");
-  const [tempFuzzy, setTempFuzzy] = useState(-1)
   const [lang, setLang] = useState("Eng")
   const [inf, setInf] = useState()
 
@@ -97,18 +38,14 @@ function Jobs() {
   const [vidFlag, setVidFlag] = useState('')
   const [ytflag, setYtflag] = useState(false)
   const [ansflag, setAnsflag] = useState(false)
-  const [obj, setObj] = useState("")
   const [model, setModel] = useState("beit3")
+  const [searchMode, setSearchMode] = useState("visual")
+  const [fuzzyLevel, setFuzzyLevel] = useState(1)
   const [topk, setTopk] = useState(100)
   const [retrival, setRetrival] = useState([]) // array of objects {path, L, V, frame_id, ...}
-  const [detection, setDetection] = useState(""); // detection từ DropArea
-
-  // Drop handlers
-  const handleDrop = (item, position) => {
-    setDroppedItems(prev => [...prev, { ...item, position }]);
-  };
-  
-  const handleRemove = (index) => setDroppedItems(prev => prev.filter((_, i) => i !== index));
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState("")
+  const [imageSearching, setImageSearching] = useState(false)
 
 
   // normalize retrieval into rows of 5
@@ -138,17 +75,27 @@ function Jobs() {
       const imageUrl = pathVal
         ? (pathVal.startsWith("http://") || pathVal.startsWith("https://")
           ? pathVal
-          : `http://localhost:8080/${pathVal.replace(/^\/+/, '')}`)
+          : `/frames/${pathVal.replace(/^\/+/, '')}`)
         : null;
 
       // metadata fields
-      const L = !isString && item && item.L ? item.L : "";
-      const V = !isString && item && item.V ? item.V : "";
-      const frame_id = !isString && item && item.frame_id ? item.frame_id : (pathVal ? pathVal.split('/').pop() : "");
-      const url = item.video_url
-      const time = item.frame_stamp
+      const videoId = !isString && item ? (item.video_id || "") : "";
+      const videoParts = videoId.split("_");
+      const L = !isString && item
+        ? (item.L || videoParts[0]?.replace(/^[KL]/, "") || "")
+        : "";
+      const V = !isString && item
+        ? (item.V || videoParts[1]?.replace(/^V/, "") || "")
+        : "";
+      const frame_id = !isString && item
+        ? (item.frame_id ?? item.frame_mid ?? (pathVal ? pathVal.split('/').pop() : ""))
+        : (pathVal ? pathVal.split('/').pop() : "");
+      const url = !isString && item ? item.video_url : "";
+      const rawTime = !isString && item ? (item.frame_stamp ?? item.t_start ?? 0) : 0;
+      const time = Number.isFinite(Number(rawTime)) ? Number(rawTime) : 0;
       const mstime = Math.floor(time * 1000)
-      const fps = item.fps
+      const fps = !isString && item ? (item.fps ?? "") : "";
+      const metadataText = !isString && item ? (item.ocr_text || item.text || "") : "";
       let minute = Math.floor(time / 60)
       let sec = Math.floor(time - 60 * minute)
       const infor = {
@@ -175,9 +122,16 @@ function Jobs() {
               No preview
             </div>
           )}
-          <div>{`${parseInt(L.slice(0,2)) <= 20 ? "K" : "L"}: ${L}${V ? " - V: " + V : ""} ${frame_id ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s ${fps} `}  <a href={`${url}&t=${time}s`} target="_blank"
-            rel="noopener noreferrer"><CiLink /></a></div>
-          <FaFolderOpen onClick={() => {
+          <div>
+            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s ${fps}`}
+            {url && <a href={`${url}&t=${time}s`} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
+          </div>
+          {metadataText && (
+            <div style={{ marginTop: 6, textAlign: "left", maxHeight: 72, overflow: "auto" }}>
+              {metadataText}
+            </div>
+          )}
+          {pathVal && <FaFolderOpen onClick={() => {
             setModalFlag(true);
             setSelectedFrame({
               idx: item.idx,
@@ -185,15 +139,15 @@ function Jobs() {
               V: item.V,
 
             });
-          }} />
-          <FaCirclePlay onClick={() => {
+          }} />}
+          {url && <FaCirclePlay onClick={() => {
             let newUrl = `${url}&t=${time}s`; // Bỏ chữ 's'
 
 
             setVidFlag(newUrl);
             console.log("Setting vidFlag:", newUrl);
             setYtflag(true);
-          }} />
+          }} />}
           <IoIosAddCircle onClick={() => {
             setAnsflag(true)
             setInf(infor)
@@ -217,10 +171,17 @@ function Jobs() {
   });
 
   // Helper to call backend and normalize response
-  const doSearch = async (payload) => {
+  const doSearch = async (payload, mode = "visual") => {
     try {
       console.log("Sending search payload:", payload);
-      const resp = await search(payload);
+      const requestSearch = mode === "ocr"
+        ? searchOcr
+        : mode === "asr"
+          ? searchAsr
+          : mode === "image"
+            ? searchImage
+            : search;
+      const resp = await requestSearch(payload);
 
       // normalize possible response locations
       console.log(resp)
@@ -228,7 +189,7 @@ function Jobs() {
       console.log("Raw server response:", data);
 
       // Prefer 'paths', fallback to 'data.paths', 'result', or top-level array
-      let result = data.paths ?? data.result ?? data.data ?? data;
+      let result = data.results ?? data.paths ?? data.result ?? data.data ?? data;
 
       // If result is object that contains paths
       if (result && typeof result === 'object' && !Array.isArray(result)) {
@@ -284,16 +245,27 @@ function Jobs() {
     // ensure topk is a number
     const kNum = Number(topk) || 100;
 
+    if (searchMode === "ocr" || searchMode === "asr") {
+      const metadataQuery = (screen1 || "").trim();
+      if (!metadataQuery) {
+        setRetrival([]);
+        return;
+      }
+
+      await doSearch({
+        query: metadataQuery,
+        limit: kNum,
+        fuzzy_level: fuzzyLevel,
+      }, searchMode);
+      return;
+    }
+
     const basePayload = {
       k: kNum,
-      detection: detection || "",
-      objects: obj || "",
       device: "cpu",
-      operator: logic || "AND",
       page: 1,
       page_size: pageSize || 10,
-      text: text || "",
-      temporal_fuzzy: tempFuzzy || -1,
+      query1: screen1 || undefined,
       language: lang
 
     };
@@ -308,11 +280,43 @@ function Jobs() {
       device: "cpu",
       augment: status,
       page: 1,
-      page_size: pageSize || 10,
-      temporal_fuzzy: tempFuzzy || -1
+      page_size: pageSize || 10
     } : basePayload;
 
     await doSearch(payload);
+  };
+
+  const selectImage = (file) => {
+    setImageFile(file);
+
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(String(reader.result || ""));
+    reader.readAsDataURL(file);
+
+    return false;
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    setImagePreview("");
+  };
+
+  const handleImageSearch = async () => {
+    if (!imageFile) return;
+
+    const formData = new FormData();
+    formData.append("image", imageFile);
+    formData.append("model", model || "beit3");
+    formData.append("top_k", String(Number(topk) || 100));
+
+    setImageSearching(true);
+    try {
+      await doSearch(formData, "image");
+      setSearchMode("visual");
+      closeDrawer();
+    } finally {
+      setImageSearching(false);
+    }
   };
 
   return (
@@ -320,7 +324,7 @@ function Jobs() {
       <div style={{ display: 'flex', width: '100%', overflow: 'none' }}>
         {/* Sidebar Drawer */}
         <Drawer
-          title={<h2 style={{ margin: 0, fontFamily: "sans-serif" }}>Metadata Search</h2>}
+          title={<h2 style={{ margin: 0, fontFamily: "sans-serif" }}>Image Search</h2>}
           placement="left"
           onClose={closeDrawer}
           open={drawerOpen}
@@ -335,58 +339,44 @@ function Jobs() {
             height: "100%",
             display: "flex",
             flexDirection: "column",
-            gap: 10,
+            gap: 16,
             overflowY: "auto",
             background: "#fff",
           }}>
-            <ItemPalette items={availableItems} />
+            <Upload.Dragger
+              accept="image/jpeg,image/png,image/webp"
+              beforeUpload={selectImage}
+              fileList={imageFile ? [imageFile] : []}
+              maxCount={1}
+              multiple={false}
+              onRemove={clearImage}
+            >
+              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p className="ant-upload-text">Kéo thả ảnh vào đây</p>
+              <p className="ant-upload-hint">Hoặc nhấn để chọn JPG, PNG, WEBP</p>
+            </Upload.Dragger>
 
-            <div style={{ display: "flex", flexDirection: "column" }}>
+            {imagePreview && (
+              <img
+                src={imagePreview}
+                alt="Image search preview"
+                style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: 8 }}
+              />
+            )}
 
-
-              <div style={{ marginTop: 8 }}>
-                <Radio.Group onChange={(e) => setLogic(e.target.value)} value={logic}>
-                  <Space>
-                    <Radio value="AND">AND</Radio>
-                    <Radio value="OR">OR</Radio>
-                  </Space>
-                </Radio.Group>
-              </div>
+            <div>
+              Model: <strong>{model.toUpperCase()}</strong> · Top-K: <strong>{Number(topk) || 100}</strong>
             </div>
 
-            <DropArea
-              droppedItems={droppedItems}
-              onDrop={handleDrop}
-              onRemove={handleRemove}
-              onStateChange={setDetection}
-            />
-
-            <Input
-              style={{ width: "93%" }}
-              placeholder="Object fillin (ex: car1, car2)"
-              value={obj}
-              onChange={(e) => setObj(e.target.value)}
-            />
-
-            <Input
-              style={{ width: "93%" }}
-              placeholder="Text indicator ( ex: apple )"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-
-            <Select
-              style={{ width: '20%' }}
-              value={tempFuzzy}
-              onChange={(value) => setTempFuzzy(value)}
+            <Button
+              type="primary"
+              size="large"
+              disabled={!imageFile}
+              loading={imageSearching}
+              onClick={handleImageSearch}
             >
-              <Option value={-1}>-1</Option>
-              <Option value={1}>1</Option>
-              <Option value={2}>2</Option>
-
-              <Option value={3}>3</Option>
-
-            </Select>
+              Search by image
+            </Button>
           </div>
 
         </Drawer>
@@ -418,7 +408,7 @@ function Jobs() {
           >
             <Input
               style={{ flex: 1, borderRadius: 8 }}
-              placeholder="Screen 1"
+              placeholder={searchMode === "visual" ? "Screen 1" : "Nhập nội dung OCR/ASR"}
               value={screen1}
               onChange={(e) => setScreen1(e.target.value)}
             />
@@ -426,6 +416,7 @@ function Jobs() {
             <Input
               style={{ flex: 1, borderRadius: 8 }}
               placeholder="Screen 2"
+              disabled={searchMode !== "visual"}
               value={screen2}
               onChange={(e) => setScreen2(e.target.value)}
             />
@@ -433,6 +424,7 @@ function Jobs() {
             <Input
               style={{ flex: 1, borderRadius: 8 }}
               placeholder="Screen 3"
+              disabled={searchMode !== "visual"}
               value={screen3}
               onChange={(e) => setScreen3(e.target.value)}
             />
@@ -506,12 +498,37 @@ function Jobs() {
             />
 
             <Select
+              style={{ width: '150px' }}
+              value={searchMode}
+              onChange={(value) => setSearchMode(value)}
+            >
+              <Option value="visual">Visual</Option>
+              <Option value="ocr">OCR</Option>
+              <Option value="asr">ASR</Option>
+            </Select>
+
+            <Select
+              style={{ width: '155px' }}
+              value={fuzzyLevel}
+              onChange={(value) => setFuzzyLevel(value)}
+              disabled={searchMode === "visual"}
+              title="OCR/ASR fuzzy level"
+            >
+              <Option value={-1}>Exact (-1)</Option>
+              <Option value={1}>Fuzzy 1</Option>
+              <Option value={2}>Fuzzy 2</Option>
+              <Option value={3}>Fuzzy 3</Option>
+            </Select>
+
+            <Select
               style={{ width: '130px' }}
               value={model}
               onChange={(value) => setModel(value)}
+              disabled={searchMode !== "visual"}
             >
               <Option value="beit3">BEIT3</Option>
-              <Option value="clip">CLIP</Option>
+              <Option value="jina">JINA</Option>
+              <Option value="pe">PE</Option>
             </Select>
 
 

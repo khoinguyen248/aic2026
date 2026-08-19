@@ -31,6 +31,7 @@ def create_app():
                 "ok": True,
                 "environment": Config.APP_ENV,
                 "mongo_enabled": Config.MONGO_ENABLED,
+                "mongo_search_enabled": Config.MONGO_SEARCH_ENABLED,
                 "search_enabled": Config.SEARCH_ENABLED,
             }
         ), 200
@@ -74,9 +75,14 @@ def create_app():
 
         app.register_blueprint(user_bp, url_prefix="/user")
 
-    if Config.SEARCH_ENABLED:
-        from .routes.search_routes import search_bp
+    if Config.MONGO_SEARCH_ENABLED:
+        from .routes.mongo_search_routes import mongo_search_bp
 
-        app.register_blueprint(search_bp, url_prefix="/search")
+        app.register_blueprint(mongo_search_bp, url_prefix="/search")
+
+    if Config.SEARCH_ENABLED:
+        from .routes.qdrant_routes import qdrant_bp
+
+        app.register_blueprint(qdrant_bp, url_prefix="/search")
 
     return app
