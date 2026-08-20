@@ -1,18 +1,26 @@
-from flask import Blueprint
-from ..controllers.search_controller import search_collection, temporal_frames
-from ..controllers.trake_controller import trake_search
+import logging
 
+from flask import Blueprint
+
+# ASR/OCR (code của bạn) đọc Mongo teammate — import NHẸ (chỉ pymongo), luôn đăng ký được.
+from ..controllers.asr_controller import asr_search
+from ..controllers.ocr_controller import ocr_search
+
+# TRAKE giờ chạy trên Qdrant (SearchEngine của teammate), KHÔNG kéo theo FAISS/beit3 -> import nhẹ.
+from ..controllers.trake_controller import trake_search, trake_frame
+
+# NOTE: /search/collection (main search) + /search/image do Qdrant của teammate đảm nhiệm.
 search_bp = Blueprint("search", __name__)
 
-# POST vì chúng ta truyền nhiều tham số trong body
-@search_bp.route("/collection", methods=["POST"])
-def search_collection_route():
-    return search_collection()
+search_bp.add_url_rule("/asr", view_func=asr_search, methods=["POST"])
+search_bp.add_url_rule("/ocr", view_func=ocr_search, methods=["POST"])
+search_bp.add_url_rule("/trake", view_func=trake_search, methods=["POST"])
+search_bp.add_url_rule("/frame", view_func=trake_frame, methods=["GET"])
 
-@search_bp.route("/infoframes", methods=["POST"])
-def search_info_route():
-    return temporal_frames()
+# /infoframes vẫn kéo theo search_controller (stack beit3 cũ) -> guard riêng để khỏi ảnh hưởng phần trên.
+try:
+    from ..controllers.search_controller import temporal_frames
 
-@search_bp.route("/trake", methods=["POST"])
-def trake_search_route():
-    return trake_search()
+    search_bp.add_url_rule("/infoframes", view_func=temporal_frames, methods=["POST"])
+except Exception as _exc:  # noqa: BLE001
+    logging.getLogger(__name__).warning("/search/infoframes disabled: %s", _exc)

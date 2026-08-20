@@ -1,9 +1,28 @@
 # app/controllers/trake_controller.py
-from flask import request, jsonify, current_app
+"""TRAKE trên hạ tầng CHUNG — dùng SearchEngine (Qdrant) của teammate, KHÔNG FAISS."""
+import io
 
-from .search_controller import ensure_models
-from ..models.eeiot_model import get_frames_collection
+from flask import request, jsonify, current_app, send_file
+
 from ..services import trake_service
+
+_ALLOWED_MODELS = {"beit3", "jina", "pe"}
+
+
+def _get_engine():
+    """Dùng chung singleton SearchEngine với qdrant_controller."""
+    from .qdrant_controller import _get_engine as _qe
+
+    return _qe()
+
+
+def _model_from_request(value):
+    model = str(value or "beit3").strip().lower()
+    if model == "clip":
+        model = "pe"
+    if model not in _ALLOWED_MODELS:
+        raise ValueError("model must be one of: beit3, jina, pe")
+    return model
 
 
 def trake_search():
@@ -15,44 +34,132 @@ def trake_search():
             isinstance(e, str) and e.strip() for e in events
         ):
             return jsonify(
-                {"ok": False, "error": "events phải là danh sách >= 2 chuỗi mô tả (theo thứ tự thời gian)"}
+                {"ok": False, "error": "events must be a list of >= 2 description strings (in chronological order)"}
             ), 400
 
+        model = _model_from_request(data.get("model"))
         language = bool(data.get("language", False))  # True = query nhập bằng tiếng Việt
-        device = data.get("device", "cpu")
         top_m = data.get("top_m")
         top_videos = data.get("top_videos")
         max_combos = data.get("max_combos")
 
+        # OCR/ASR theo TỪNG event (tùy chọn): mảng song song với events, "" = không dùng.
+        # KHÔNG dịch (OCR/ASR khớp dữ liệu tiếng Việt trong Mongo).
+        def _parse_side(key):
+            arr = data.get(key)
+            if arr is None:
+                return None
+            if not isinstance(arr, list):
+                raise ValueError(f"{key} must be a list of strings aligned with events")
+            arr = [(str(x) if x is not None else "") for x in arr]
+            if any(s.strip() for s in arr):
+                return arr
+            return None
+
+        events_ocr = _parse_side("events_ocr")
+        events_asr = _parse_side("events_asr")
+
         events_text = events
         if language:
-            from deep_translator import GoogleTranslator
+            try:
+                from deep_translator import GoogleTranslator
 
-            events_text = [GoogleTranslator(source="vi", target="en").translate(e) for e in events]
+                events_text = [GoogleTranslator(source="vi", target="en").translate(e) for e in events]
+            except Exception as e:  # thiếu package / mạng lỗi -> dùng nguyên văn, không làm hỏng search
+                current_app.logger.warning("TRAKE translate thất bại, dùng text gốc: %s", e)
+                events_text = events
 
-        collection = get_frames_collection()
-        if collection is None:
-            return jsonify({"ok": False, "error": "frames collection not available"}), 500
-
-        models = ensure_models(device=device)
-        clip_bundle = models["clip"]
-        if clip_bundle[0] is None or models["index_clip"] is None:
-            return jsonify({"ok": False, "error": "CLIP model/index chưa sẵn sàng (kiểm tra log khởi tạo)"}), 503
+        try:
+            engine = _get_engine()
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Qdrant engine not available: {e}"}), 503
 
         result = trake_service.run_trake(
             events_text=events_text,
-            clip_bundle=clip_bundle,
-            device=device,
-            faiss_index=models["index_clip"],
-            mongo_collection=collection,
+            engine=engine,
+            model=model,
             top_m=int(top_m) if top_m else None,
             top_videos=int(top_videos) if top_videos else None,
             max_combos=int(max_combos) if max_combos else None,
+            events_ocr=events_ocr,
+            events_asr=events_asr,
         )
 
-        status = 200 if result.get("ok") else 404
-        return jsonify(result), status
+        return jsonify(result), (200 if result.get("ok") else 404)
 
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         current_app.logger.exception("trake_search failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _video_path_for(engine, model, video_id):
+    """Lấy video_path từ payload Qdrant (1 point bất kỳ của video), rồi ghép VIDEO_ROOT."""
+    from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+
+    points, _ = engine.client.scroll(
+        collection_name=engine.collection_name(model),
+        scroll_filter=Filter(must=[FieldCondition(key="video_id", match=MatchValue(value=video_id))]),
+        limit=1,
+        with_payload=True,
+        with_vectors=False,
+    )
+    if not points:
+        return None
+    payload = points[0].payload or {}
+    return trake_service.resolve_video_path(payload.get("video_path"), video_id)
+
+
+def trake_frame():
+    """Verify tay: decode đúng 1 frame gốc từ video (kể cả frame tier-3 không phải keyframe).
+    Cần VIDEO_ROOT + video (Case 1). Không có -> 404 để UI fallback (link YouTube + ±10).
+
+    GET /search/frame?L=<L>&V=<V>&frame_id=<int>&model=<beit3|jina|pe>
+    """
+    try:
+        L = request.args.get("L")
+        V = request.args.get("V")
+        frame_id = request.args.get("frame_id", type=int)
+        if L is None or V is None or frame_id is None:
+            return jsonify({"ok": False, "error": "missing L / V / frame_id"}), 400
+
+        model = _model_from_request(request.args.get("model"))
+        video_id = f"L{L}_V{V}"
+
+        try:
+            engine = _get_engine()
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Qdrant engine not available: {e}"}), 503
+
+        video_path = _video_path_for(engine, model, video_id)
+        if not video_path:
+            return jsonify(
+                {"ok": False, "error": f"Source video not found for {video_id} (no video on this machine / Case 2)"}
+            ), 404
+
+        try:
+            import cv2
+        except ImportError:
+            return jsonify({"ok": False, "error": "opencv (cv2) not installed"}), 503
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return jsonify({"ok": False, "error": f"Cannot open video: {video_path}"}), 500
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_id))
+        ok, frame = cap.read()
+        cap.release()
+        if not ok:
+            return jsonify({"ok": False, "error": f"Cannot read frame {frame_id}"}), 404
+
+        ok2, buf = cv2.imencode(".jpg", frame)
+        if not ok2:
+            return jsonify({"ok": False, "error": "JPEG encoding failed"}), 500
+
+        return send_file(io.BytesIO(buf.tobytes()), mimetype="image/jpeg")
+
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        current_app.logger.exception("trake_frame failed: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500

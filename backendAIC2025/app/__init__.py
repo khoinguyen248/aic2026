@@ -75,14 +75,22 @@ def create_app():
 
         app.register_blueprint(user_bp, url_prefix="/user")
 
-    if Config.MONGO_SEARCH_ENABLED:
-        from .routes.mongo_search_routes import mongo_search_bp
-
-        app.register_blueprint(mongo_search_bp, url_prefix="/search")
-
     if Config.SEARCH_ENABLED:
+        # Main search / image search / health = Qdrant (teammate):
+        #   /search/collection, /search/image, /search/health
         from .routes.qdrant_routes import qdrant_bp
 
         app.register_blueprint(qdrant_bp, url_prefix="/search")
+
+        # TRAKE + ASR + OCR + infoframes = code của bạn:
+        #   /search/trake, /search/frame, /search/asr, /search/ocr, /search/infoframes
+        # Guard: TRAKE/search_controller kéo theo stack FAISS/CLIP/beit3 — nếu thiếu dep thì
+        # chỉ tắt các route này, KHÔNG làm sập cả app.
+        try:
+            from .routes.search_routes import search_bp
+
+            app.register_blueprint(search_bp, url_prefix="/search")
+        except Exception as exc:
+            app.logger.warning("Không load được search_bp (TRAKE/ASR/OCR): %s", exc)
 
     return app

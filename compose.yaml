@@ -42,6 +42,7 @@ services:
     volumes:
       - "./runtime-data/checkpoints:/models:ro"
       - "./runtime-data/keyframes:/data/keyframes:ro"
+      - "${VIDEO_HOST_PATH:-./runtime-data/videos}:/data/videos:ro"
       - huggingface_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
 

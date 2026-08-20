@@ -64,7 +64,7 @@ function Ansbox1({inf, close}) {
                     console.log(result)
                     
          }}>
-                    <p>Nộp nha ku</p>
+                    <p>Submit</p>
                 </Button>
 
             </div>

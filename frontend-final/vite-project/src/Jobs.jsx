@@ -1,12 +1,12 @@
 // Jobs.jsx
 import { useState } from 'react'
 import { MdManageSearch } from "react-icons/md";
-import { Button, Checkbox, Drawer, Input, Select, Table, Upload } from "antd";
+import { Button, Checkbox, Drawer, Input, Radio, Select, Table, Upload } from "antd";
 import { FaCirclePlay } from "react-icons/fa6";
 import { IoIosAddCircle } from "react-icons/io";
 
 import './App.css'
-import { search, searchAsr, searchImage, searchOcr } from './api';
+import { search, searchImage, searchOcr, searchAsr, asrSearch, ocrSearch } from './api';
 import { Option } from 'antd/es/mentions';
 import { InboxOutlined, MenuOutlined } from "@ant-design/icons";
 import { CiLink } from "react-icons/ci";
@@ -16,6 +16,8 @@ import YoutubePlayer from './YoutubePlayer.jsx';
 import Ansbox from './Ansbox.jsx';
 import Ansbox1 from './Ansbox1.jsx';
 import Ansbox2 from './Ansbox2.jsx';
+import TrakePanel from './TrakePanel.jsx';
+import AsrResults from './AsrResults.jsx';
 
 function Jobs() {
   const [drawerOpen, setDrawerOpen] = useState(true); // mở mặc định
@@ -47,6 +49,45 @@ function Jobs() {
   const [imagePreview, setImagePreview] = useState("")
   const [imageSearching, setImageSearching] = useState(false)
 
+  // ASR search: 2 modes — standalone / merge into main search
+  const [asrQuery, setAsrQuery] = useState("")
+  const [asrMode, setAsrMode] = useState("standalone")
+  const [asrResults, setAsrResults] = useState([])
+  const [asrLoading, setAsrLoading] = useState(false)
+  const [asrError, setAsrError] = useState("")
+
+  const runAsrSearch = async () => {
+    if (!asrQuery.trim()) { setAsrError("Enter spoken content to search"); return }
+    setAsrError(""); setAsrLoading(true); setAsrResults([])
+    try {
+      const resp = await asrSearch({ query: asrQuery, k: 50 })
+      if (resp.data?.ok) setAsrResults(resp.data.results || [])
+      else setAsrError(resp.data?.error || "ASR search failed")
+    } catch (err) {
+      setAsrError(err?.response?.data?.error || err.message || "Backend connection error")
+    } finally { setAsrLoading(false) }
+  }
+  const asrActive = asrMode === "standalone" && (asrLoading || asrError || asrResults.length > 0)
+
+  // OCR search (chữ trên màn hình) — cùng pattern ASR; standalone tái dùng bảng frame (retrival)
+  const [ocrQuery, setOcrQuery] = useState("")
+  const [ocrMode, setOcrMode] = useState("standalone")
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrError, setOcrError] = useState("")
+
+  const runOcrSearch = async () => {
+    if (!ocrQuery.trim()) { setOcrError("Enter on-screen text to search"); return }
+    setOcrError(""); setOcrLoading(true)
+    // xoá kết quả ASR standalone để bảng frame OCR hiện ra
+    setAsrResults([]); setAsrError("")
+    try {
+      const resp = await ocrSearch({ query: ocrQuery, k: 100 })
+      if (resp.data?.ok) setRetrival((resp.data.results || []).filter(Boolean))
+      else { setOcrError(resp.data?.error || "OCR search failed"); setRetrival([]) }
+    } catch (err) {
+      setOcrError(err?.response?.data?.error || err.message || "Backend connection error"); setRetrival([])
+    } finally { setOcrLoading(false) }
+  }
 
   // normalize retrieval into rows of 5
   const rows = [];
@@ -266,6 +307,8 @@ function Jobs() {
       page: 1,
       page_size: pageSize || 10,
       query1: screen1 || undefined,
+      asr: asrMode === "merge" ? (asrQuery || undefined) : undefined,
+      ocr: ocrMode === "merge" ? (ocrQuery || undefined) : undefined,
       language: lang
 
     };
@@ -276,8 +319,6 @@ function Jobs() {
       query2: screen2 || undefined,
       query3: screen3 || undefined,
       model: model || "beit3",
-      k: kNum,
-      device: "cpu",
       augment: status,
       page: 1,
       page_size: pageSize || 10
@@ -321,7 +362,7 @@ function Jobs() {
 
   return (
     <>
-      <div style={{ display: 'flex', width: '100%', overflow: 'none' }}>
+      <div style={{ display: 'flex', width: '100%', position: 'relative', minHeight: '100vh' }}>
         {/* Sidebar Drawer */}
         <Drawer
           title={<h2 style={{ margin: 0, fontFamily: "sans-serif" }}>Image Search</h2>}
@@ -377,13 +418,68 @@ function Jobs() {
             >
               Search by image
             </Button>
+
+            {/* ASR search — spoken content, 2 modes */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>ASR search — spoken content</div>
+              <Radio.Group value={asrMode} onChange={(e) => setAsrMode(e.target.value)}>
+                <Radio value="standalone">Standalone</Radio>
+                <Radio value="merge">Merge into main search</Radio>
+              </Radio.Group>
+              <Input.TextArea
+                placeholder="e.g. the chairman announces the opening"
+                value={asrQuery}
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                onChange={(e) => setAsrQuery(e.target.value)}
+              />
+              {asrMode === "standalone" ? (
+                <Button type="primary" loading={asrLoading} onClick={runAsrSearch}>
+                  ASR Search
+                </Button>
+              ) : (
+                <div style={{ fontSize: 12, color: "#888" }}>
+                  ASR content merges into the main search (Screen 1/2/3) to push matching frames to the top.
+                </div>
+              )}
+            </div>
+
+            {/* OCR search — chữ trên màn hình, cùng 2 mode */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>OCR search — on-screen text</div>
+              <Radio.Group value={ocrMode} onChange={(e) => setOcrMode(e.target.value)}>
+                <Radio value="standalone">Standalone</Radio>
+                <Radio value="merge">Merge into main search</Radio>
+              </Radio.Group>
+              <Input
+                placeholder='e.g. proper noun, score "3 - 1"'
+                value={ocrQuery}
+                onChange={(e) => setOcrQuery(e.target.value)}
+                onPressEnter={ocrMode === "standalone" ? runOcrSearch : undefined}
+              />
+              {ocrMode === "standalone" ? (
+                <Button type="primary" loading={ocrLoading} onClick={runOcrSearch}>
+                  OCR Search
+                </Button>
+              ) : (
+                <div style={{ fontSize: 12, color: "#888" }}>
+                  OCR text merges into the main search (Screen 1/2/3) to push matching frames to the top.
+                </div>
+              )}
+              {ocrError && <div style={{ color: "#d4380d", fontSize: 12 }}>{ocrError}</div>}
+            </div>
           </div>
 
         </Drawer>
 
-        {/* Main area */}
-        {/* Main area */}
-        <div style={{ width: '100%', fontFamily: 'Inter, sans-serif' }}>
+        {/* Main area — dời sang phải khi mở sidebar để không bị che */}
+        <div style={{
+          width: drawerOpen ? 'calc(100% - 372px)' : '100%',
+          marginLeft: drawerOpen ? '372px' : '0',
+          transition: 'margin-left 0.2s ease, width 0.2s ease',
+          fontFamily: 'Inter, sans-serif',
+          padding: '12px',
+          boxSizing: 'border-box',
+        }}>
 
           {/* Search row */}
           <div
@@ -408,25 +504,9 @@ function Jobs() {
           >
             <Input
               style={{ flex: 1, borderRadius: 8 }}
-              placeholder={searchMode === "visual" ? "Screen 1" : "Nhập nội dung OCR/ASR"}
+              placeholder={searchMode === "visual" ? "Tìm kiếm cảnh (1 truy vấn — nhiều sự kiện dùng TRAKE)" : "Nhập nội dung OCR/ASR"}
               value={screen1}
               onChange={(e) => setScreen1(e.target.value)}
-            />
-
-            <Input
-              style={{ flex: 1, borderRadius: 8 }}
-              placeholder="Screen 2"
-              disabled={searchMode !== "visual"}
-              value={screen2}
-              onChange={(e) => setScreen2(e.target.value)}
-            />
-
-            <Input
-              style={{ flex: 1, borderRadius: 8 }}
-              placeholder="Screen 3"
-              disabled={searchMode !== "visual"}
-              value={screen3}
-              onChange={(e) => setScreen3(e.target.value)}
             />
 
             <Button
@@ -498,33 +578,9 @@ function Jobs() {
             />
 
             <Select
-              style={{ width: '150px' }}
-              value={searchMode}
-              onChange={(value) => setSearchMode(value)}
-            >
-              <Option value="visual">Visual</Option>
-              <Option value="ocr">OCR</Option>
-              <Option value="asr">ASR</Option>
-            </Select>
-
-            <Select
-              style={{ width: '155px' }}
-              value={fuzzyLevel}
-              onChange={(value) => setFuzzyLevel(value)}
-              disabled={searchMode === "visual"}
-              title="OCR/ASR fuzzy level"
-            >
-              <Option value={-1}>Exact (-1)</Option>
-              <Option value={1}>Fuzzy 1</Option>
-              <Option value={2}>Fuzzy 2</Option>
-              <Option value={3}>Fuzzy 3</Option>
-            </Select>
-
-            <Select
               style={{ width: '130px' }}
               value={model}
               onChange={(value) => setModel(value)}
-              disabled={searchMode !== "visual"}
             >
               <Option value="beit3">BEIT3</Option>
               <Option value="jina">JINA</Option>
@@ -550,7 +606,11 @@ function Jobs() {
 
           {/* Result area */}
           <div style={{ marginTop: 20 }}>
-            {retrival.length > 0 ? (
+            {selectAns === "trake" ? (
+              <TrakePanel language={lang === true} model={model} />
+            ) : asrActive ? (
+              <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
+            ) : retrival.length > 0 ? (
               <Table
                 style={{ width: '100%', margin: '0', background: '#fff' }}
                 dataSource={dataSource}

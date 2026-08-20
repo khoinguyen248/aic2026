@@ -413,7 +413,9 @@ def search_collection():
         if operator not in ("AND", "OR"):
             operator = "AND"
         text = data.get("text")
-        device = data.get("device", "cpu") 
+        asr = data.get("asr")  # merge mode: nội dung lời nói -> đẩy frame trong đoạn ASR khớp lên đầu
+        ocr = data.get("ocr")  # merge mode: chữ trên màn hình -> đẩy frame có ocr_text khớp lên đầu
+        device = data.get("device", "cpu")
         use_llm = data.get("use_llm", augment)
 
         collection = get_frames_collection()
@@ -461,10 +463,28 @@ def search_collection():
             text=text,
             device=device,
             language=language
-            
+
         )
 
-       
+        # Merge mode: leg ASR/OCR — đẩy frame khớp lời nói / chữ trên màn hình lên đầu (§8-9 spec).
+        # Additive, không đụng search_logic; dễ reconcile với RRF hybrid của teammate sau này.
+        if topk and (asr or ocr):
+            try:
+                boost = set()
+                if asr:
+                    from .asr_controller import asr_boost_idxset
+                    boost |= asr_boost_idxset(asr, k)
+                if ocr:
+                    from .ocr_controller import ocr_boost_idxset
+                    boost |= ocr_boost_idxset(ocr, k)
+                if boost:
+                    boosted = [i for i in topk if i in boost]
+                    rest = [i for i in topk if i not in boost]
+                    topk = boosted + rest
+                    current_app.logger.info("ASR/OCR boost: %d frame được đẩy lên", len(boosted))
+            except Exception as e:
+                current_app.logger.warning("ASR/OCR boost lỗi (%s) -> bỏ qua", e)
+
         docs = []
         if topk:
             cursor = collection.find(

@@ -60,6 +60,12 @@ class Config:
         os.getenv("TRAKE_VIDEO_CONFIDENCE_THRESHOLD", "0.8")
     )
 
+    # Ghép OCR/ASR theo TỪNG event (boost mềm): frame ứng viên của event nào khớp OCR (chữ trên
+    # màn hình, trong ±WINDOW frame) hoặc rơi vào khoảng ASR (lời nói) của event đó -> nhân điểm
+    # lên (1+BOOST). Frame không khớp vẫn giữ (không loại). Chỉ dùng khi request có events_ocr/asr.
+    TRAKE_OCRASR_BOOST = float(os.getenv("TRAKE_OCRASR_BOOST", "0.3"))
+    TRAKE_OCRASR_WINDOW = int(os.getenv("TRAKE_OCRASR_WINDOW", "250"))
+
     # Rerank tầng 3 khi 2+ frame liền kề gần như tie (CLIP không phân biệt được).
     # Mặc định dùng thuật toán (peak/prominence trên đường cong điểm số) - miễn phí, luôn chạy.
     # Bật thêm Qwen2.5-VL để phân xử khi thuật toán cũng không chắc -> chỉ gọi khi thật sự cần,

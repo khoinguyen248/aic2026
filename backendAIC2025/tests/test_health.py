@@ -26,13 +26,15 @@ def test_mongo_health_when_disabled():
     assert body["enabled"] is False
 
 
-def test_mongo_search_routes_are_registered_independently(monkeypatch):
-    monkeypatch.setattr("app.Config.MONGO_SEARCH_ENABLED", True)
-    monkeypatch.setattr("app.Config.SEARCH_ENABLED", False)
+# NOTE: mongo_search_bp (ASR/OCR kiểu teammate) đã bị thay bằng ASR/OCR trong search_bp (code của bạn),
+# đăng ký dưới SEARCH_ENABLED (kèm Qdrant). Test cũ kiểm tra mongo_search_bp không còn phù hợp.
 
+
+def test_mongo_search_disabled_by_default():
+    # Mặc định SEARCH_ENABLED=False -> không đăng ký route /search nào (kể cả của teammate lẫn của bạn)
     app = create_app()
     routes = {rule.rule for rule in app.url_map.iter_rules()}
 
-    assert "/search/ocr" in routes
-    assert "/search/asr" in routes
+    assert "/search/asr" not in routes
+    assert "/search/ocr" not in routes
     assert "/search/collection" not in routes
