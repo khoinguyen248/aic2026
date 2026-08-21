@@ -64,4 +64,4 @@ COPY . .
 EXPOSE 5000
 
 # Timeout 900s: lần query đầu phải nạp model lên VRAM.
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "900", "--access-logfile", "-", "--error-logfile", "-", "run:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "900", "--access-logfile", "-", "--access-logformat", "%(h)s \"%(r)s\" %(s)s %(b)sB %(L)ss", "--error-logfile", "-", "run:app"]
