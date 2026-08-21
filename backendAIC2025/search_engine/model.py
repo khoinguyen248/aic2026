@@ -184,7 +184,8 @@ class OpenCLIPEncoder(BaseEncoder):
 
         self.model_name = model_name
         self.vector_size = vector_size
-        self.device = torch.device(config.device if torch.cuda.is_available() or config.device == "cpu" else "cpu")
+        # self.device = torch.device(config.device if torch.cuda.is_available() or config.device == "cpu" else "cpu")
+        self.device = torch.device("cpu")
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(model_name)
         self.tokenizer = open_clip.get_tokenizer(model_name)
         self.model.to(self.device).eval()
