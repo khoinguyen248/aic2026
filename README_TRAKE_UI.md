@@ -1,126 +1,140 @@
-# Ý tưởng UI verify TRAKE — bản để team góp ý
+# TRAKE verification UI — proposal for team review
 
-> File này gom lại ý tưởng làm UI cho phần TRAKE ở **vòng sơ loại** (search tay → điền sheet đáp án),
-> để cả team xem và cho ý kiến trước khi code. Chưa phải bản chốt.
-> Liên quan: [README_TRAKE.md](README_TRAKE.md) (pipeline TRAKE), mục 10.3 trong `AIC2026_IMPROVEMENT_SPEC (1).md`.
-
----
-
-## 1. Vấn đề cần giải
-
-TRAKE mỗi câu phải nộp `video_id, frame_1, ..., frame_N` (tối đa 100 tổ hợp). **Không ai muốn gom
-frame bằng tay** như năm ngoái (dò video YouTube, tính `time × fps` ra frame). Pipeline `/search/trake`
-đã **tự sinh sẵn 100 tổ hợp xếp hạng**, nhưng máy vẫn có thể chọn nhầm frame → **cần xem lại frame
-thật để verify thủ công cho chắc** trước khi điền vào sheet.
-
-Mục tiêu UI: **bấm TRAKE Search → hiện danh sách tổ hợp → bấm 1 tổ hợp → hiện đúng các frame đó để
-mắt người kiểm.**
+> This file collects the UI ideas for the TRAKE part of the **preliminary round** (manual search →
+> fill in the answer sheet) so the team can comment before anyone writes code. Not final.
+> Related: [README_TRAKE.md](README_TRAKE.md) (the TRAKE pipeline) and §10.3 of
+> `AIC2026_IMPROVEMENT_SPEC (1).md`.
 
 ---
 
-## 2. Hai loại máy, hai cách verify (quan trọng)
+## 1. The problem
 
-Team có 2 kiểu máy khi chạy, UI phải phục vụ được cả hai trong **cùng một giao diện**:
+Every TRAKE question requires submitting `video_id, frame_1, ..., frame_N` (up to 100 combinations).
+**Nobody wants to collect frames by hand** the way we did last year — scrubbing the YouTube video and
+computing `time × fps` to get a frame number. The `/search/trake` pipeline already **produces 100
+ranked combinations automatically**, but the machine can still pick the wrong frame, so we **need to
+look at the real frames and verify manually** before filling in the sheet.
 
-| | Máy chạy **3 tầng** (có video, vd USB) | Máy chạy **2 tầng** (không có video) |
+Goal of the UI: **press TRAKE Search → see the list of combinations → click one → see exactly those
+frames for a human to check.**
+
+---
+
+## 2. Two kinds of machine, two ways to verify (important)
+
+Team machines fall into two categories and the UI has to serve both **in one interface**:
+
+| | Machine running **3 tiers** (has the videos, e.g. on USB) | Machine running **2 tiers** (no videos) |
 |---|---|---|
-| Frame nộp | frame gốc đã tinh chỉnh (mịn tới từng frame) | frame ở mức keyframe |
-| Ảnh để verify | **decode thẳng từ video** đúng frame đó | **ảnh keyframe dày** của mình (đã có trên đĩa) |
-| Cách dò chính xác | xem ảnh frame gốc là đủ | link YouTube tại `time = frame_id/fps` + **extension YouTube Milliseconds Timestamp** để tính ms → suy ra frame; kèm viewer ±10 frame |
+| Submitted frame | refined source frame (frame-exact) | keyframe-level frame |
+| Image for verification | **decoded straight from the video** at that frame | **our own dense keyframe** image already on disk |
+| How to pin it down | looking at the source frame is enough | YouTube link at `time = frame_id/fps` plus the **YouTube Milliseconds Timestamp** extension to convert ms → frame, together with a ±10 frame viewer |
 
-**Ghi chú năm nay:** tụi mình **tự cắt lại frame (không dùng của BTC) → frame dày & mịn hơn** → kết
-quả 2 tầng đã gần/lọt cửa sổ đáp án `<10 frame` hơn hẳn năm ngoái. Nên máy 2 tầng năm nay **không
-còn quá thiệt**; 3 tầng vẫn chính xác nhất.
+**Note for this year:** we **cut our own frames instead of using the organizers' set → denser and
+finer**, so the 2-tier result already lands much closer to the `<10 frame` answer window than last
+year. A 2-tier machine is no longer at a serious disadvantage; 3 tiers is still the most accurate.
 
-Extension dùng cho máy 2 tầng:
+Extension used on 2-tier machines:
 `https://chromewebstore.google.com/detail/youtube-milliseconds-time/bchlendkhiidadpakkfgnpeklmifffcp`
 
 ---
 
-## 3. Luồng UI đề xuất
+## 3. Proposed UI flow
 
 ```
-[Mode: TRAKE]                     ← dropdown selectAns đã có sẵn trong Jobs.jsx
+[Mode: TRAKE]                     ← the selectAns dropdown already exists in Jobs.jsx
 ┌───────────────────────────────────────────────┐
-│ Event 1: [vận động viên giậm nhảy...........]  │
-│ Event 2: [bay qua xà........................]  │   ← nhập N event (theo thứ tự thời gian)
-│ Event 3: [tiếp đất..........................]  │
-│ [+ thêm event]            [ TRAKE Search ]     │
+│ Event 1: [athlete plants the take-off foot..]  │
+│ Event 2: [clears the bar...................]  │   ← enter N events in chronological order
+│ Event 3: [lands on the mat.................]  │
+│ [+ add event]             [ TRAKE Search ]     │
 ├───────────────────────────────────────────────┤
-│ Kết quả (tổ hợp đã xếp hạng, tối đa 100):      │
-│ #1  L21_V001 → 1000, 1007, 1008, 1025   [xem▸] │   ← bấm 1 tổ hợp
-│ #2  L21_V001 → 1000, 1007, 1009, 1025   [xem▸] │
-│ #3  L21_V001 → 1000, 1006, 1008, 1025   [xem▸] │
+│ Results (ranked combinations, up to 100):      │
+│ #1  L21_V001 → 1000, 1007, 1008, 1025   [view▸]│   ← click a combination
+│ #2  L21_V001 → 1000, 1007, 1009, 1025   [view▸]│
+│ #3  L21_V001 → 1000, 1006, 1008, 1025   [view▸]│
 └───────────────────────────────────────────────┘
-        │ bấm "xem" tổ hợp #1 → bung ra grid frame để verify
+        │ click "view" on #1 → expand a frame grid for verification
         ▼
    ┌──────────┬──────────┬──────────┬──────────┐
-   │ [ảnh]    │ [ảnh]    │ [ảnh]    │ [ảnh]    │
+   │ [image]  │ [image]  │ [image]  │ [image]  │
    │ f1000    │ f1007    │ f1008    │ f1025    │
    │ event1   │ event2   │ event3   │ event4   │
    │ 0m40s    │ 0m40s    │ 0m40s    │ 0m41s    │
-   │ ▶YouTube │ ▶YouTube │ ▶YouTube │ ▶YouTube │   ← link tại đúng time (cắm extension ms)
-   │ ±10      │ ±10      │ ±10      │ ±10      │   ← mở viewer ±10 frame (Infor.jsx)
+   │ ▶YouTube │ ▶YouTube │ ▶YouTube │ ▶YouTube │   ← link at the exact time (with the ms extension)
+   │ ±10      │ ±10      │ ±10      │ ±10      │   ← open the ±10 frame viewer (Infor.jsx)
    └──────────┴──────────┴──────────┴──────────┘
 ```
 
 ---
 
-## 4. Điểm kỹ thuật mấu chốt: hiện ảnh frame thế nào
+## 4. The key technical point: how to display a frame
 
-UI hiện tại chỉ serve **file keyframe tĩnh** qua `http://localhost:8080/keyframes/...`
-([server.js](backend-framesAIC2025/server.js)) → **chỉ hiện được keyframe có sẵn trên đĩa**. Nhưng
-frame tier-3 (vd `1007`) nằm **giữa 2 keyframe → không có file ảnh** → không hiện qua cách này.
+The current UI only serves **static keyframe files** over
+`http://localhost:8080/keyframes/...` ([server.js](backend-framesAIC2025/server.js)), so it can only
+show keyframes that exist on disk. A tier-3 frame (say `1007`) sits **between two keyframes → no image
+file exists** and cannot be shown this way.
 
-**Giải pháp: 1 endpoint ảnh thống nhất** `GET /search/frame?video_id=..&frame_id=..`:
-1. Nếu `frame_id` **trùng 1 keyframe** (tra Mongo) → trả ảnh keyframe dày của mình (nhanh — dùng cho
-   máy 2 tầng).
-2. Nếu **không** (frame tier-3 tinh chỉnh) → **decode thẳng từ video** bằng OpenCV (dùng cho máy 3 tầng).
+**Solution: one unified image endpoint** `GET /search/frame?video_id=..&frame_id=..`:
 
-→ Cùng một UI, tự thích ứng có video hay không, không phải làm 2 phiên bản.
+1. If `frame_id` **matches a keyframe** (looked up in Mongo) → return our dense keyframe image (fast —
+   this is the 2-tier path).
+2. If it **does not** (a refined tier-3 frame) → **decode it from the video** with OpenCV (the 3-tier
+   path).
 
----
-
-## 5. Cần chỉnh nhẹ ở backend
-
-- **Enrich `/search/trake`**: trả kèm `fps` và `video_url` của video đã chọn (đã query Mongo rồi, chỉ
-  carry thêm 2 field) → để UI tính `time = frame_id/fps` dựng link YouTube + viewer ±10.
-- **Thêm `/search/frame`** như mục 4 (dùng lại `resolve_video_path()` + `VIDEO_ROOT` đã có trong
-  `trake_service.py`).
+→ One UI that adapts to whether videos are present, instead of two separate versions.
 
 ---
 
-## 6. Tái dùng được gì từ UI hiện tại (để nhẹ nhất)
+## 5. Small backend changes needed
 
-- **Link YouTube tại timestamp** `&t=${time}s` — đã có ở [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx)
-  và [Infor.jsx](frontend-final/vite-project/src/Infor.jsx). Chính là chỗ cắm extension ms.
-- **Viewer ±10 frame** — [Infor.jsx](frontend-final/vite-project/src/Infor.jsx) sẵn sàng, chỉ cần gọi lại.
-- **Gating theo mode** — `selectAns == "trake"` đã có ở [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx).
-- **Kiểu grid ảnh** — bê pattern `gridTemplateColumns: repeat(N,1fr)` + `<img>` từ Infor.jsx.
+- **Enrich `/search/trake`**: also return the `fps` and `video_url` of the chosen video (both already
+  come from the Mongo query, just carry two more fields) so the UI can compute `time = frame_id/fps`
+  for the YouTube link and the ±10 viewer.
+- **Add `/search/frame`** as described in §4, reusing `resolve_video_path()` and `VIDEO_ROOT`, which
+  already exist in `trake_service.py`.
 
 ---
 
-## 7. Khối lượng code dự kiến
+## 6. What can be reused from the current UI
 
-| Phần | Việc |
+- **YouTube link at a timestamp** `&t=${time}s` — already in
+  [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx) and
+  [Infor.jsx](frontend-final/vite-project/src/Infor.jsx). That is where the ms extension plugs in.
+- **±10 frame viewer** — [Infor.jsx](frontend-final/vite-project/src/Infor.jsx) is ready, it just needs
+  to be called again.
+- **Mode gating** — `selectAns == "trake"` already exists in
+  [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx).
+- **Image grid styling** — reuse the `gridTemplateColumns: repeat(N,1fr)` + `<img>` pattern from
+  Infor.jsx.
+
+---
+
+## 7. Estimated work
+
+| Area | Work |
 |---|---|
-| Backend | Enrich `/search/trake` (thêm `fps`, `video_url`) + endpoint `/search/frame` |
-| Frontend | 1 component panel TRAKE: nhập N event → list tổ hợp → bấm tổ hợp bung grid frame (reuse link YouTube + ±10) |
-| Không đụng | luồng KIS/QA giữ nguyên |
+| Backend | Enrich `/search/trake` (add `fps`, `video_url`) and add the `/search/frame` endpoint |
+| Frontend | One TRAKE panel component: enter N events → list combinations → click one to expand the frame grid (reusing the YouTube link and ±10 viewer) |
+| Untouched | The KIS/QA flows stay as they are |
 
 ---
 
-## 8. Cần chốt với team
+## 8. Decisions needed from the team
 
-1. Panel TRAKE: **nối thẳng vào [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx)** (hiện khi chọn
-   mode TRAKE) hay **tab/trang riêng**?
-2. Bung frame khi bấm tổ hợp: **inline** (ngay dưới dòng tổ hợp) hay **modal overlay** (kiểu Infor.jsx)?
-3. Có cần nút "copy tổ hợp" để dán nhanh vào sheet không, hay chỉ xem verify là đủ?
-4. Máy 2 tầng: hiện luôn ảnh keyframe dày, hay chỉ cần link YouTube + viewer ±10?
+1. TRAKE panel: **wire it straight into [Jobs.jsx](frontend-final/vite-project/src/Jobs.jsx)** (shown
+   when TRAKE mode is selected), or give it its own tab/page?
+2. Expanding frames on click: **inline** (right under the combination row) or **modal overlay** (like
+   Infor.jsx)?
+3. Do we want a "copy combination" button for pasting into the sheet, or is visual verification enough?
+4. On 2-tier machines: always show the dense keyframe image, or is the YouTube link plus the ±10 viewer
+   sufficient?
 
 ---
 
-## 9. Lưu ý phải sửa
+## 9. Known issue to fix
 
-- [server.js](backend-framesAIC2025/server.js) đang **hard-code** path keyframe `C:/Users/PC/Downloads/...`
-  (máy người khác) → phải sửa về folder frame dày của mình thì ảnh keyframe mới load.
+- [server.js](backend-framesAIC2025/server.js) **hard-codes** the keyframe path
+  `C:/Users/PC/Downloads/...` (someone else's machine). Point it at your own dense frame folder or the
+  keyframe images will not load. In the Docker setup this is already handled: the container serves
+  `/data/keyframes`, bind-mounted from `runtime-data/keyframes`.

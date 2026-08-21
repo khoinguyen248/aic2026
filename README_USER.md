@@ -1,70 +1,71 @@
-# Hướng dẫn sử dụng AIC 2026
+# AIC 2026 user guide
 
-Tài liệu này dành cho thành viên chỉ sử dụng website. Bạn không cần cài Git, Docker, Python, Node.js hoặc Jenkins.
+For members who only use the website. You do not need Git, Docker, Python, Node.js or Jenkins.
 
-## Truy cập website
+## Reaching the website
 
-### Trong cùng mạng Wi-Fi/LAN
+### On the same Wi-Fi/LAN
 
-Nhận địa chỉ website từ người vận hành, ví dụ:
+Get the address from whoever operates the machine, for example:
 
 ```text
 http://192.168.1.20:8088
 ```
 
-Không sử dụng `localhost:8088`, vì `localhost` luôn chỉ tới chính máy đang mở trình duyệt.
+Do not use `localhost:8088` — `localhost` always points at the machine running the browser.
 
-Điều kiện truy cập:
+Requirements:
 
-- Máy production và Docker Desktop đang hoạt động.
-- Thiết bị kết nối cùng Wi-Fi/LAN với máy production.
-- Windows Firewall cho phép kết nối TCP vào port `8088`.
-- Mạng Wi-Fi không bật client isolation/AP isolation.
+- The production machine and its Docker stack are running.
+- Your device is on the same Wi-Fi/LAN as that machine.
+- The firewall allows inbound TCP on port `8088`.
+- The Wi-Fi network does not enforce client/AP isolation.
 
-### Qua Internet
+### Over the internet
 
-Khi hệ thống được triển khai lên server chung, sử dụng domain HTTPS do nhóm cung cấp, ví dụ:
+Once the system is deployed to a shared server, use the HTTPS domain the team provides, for example:
 
 ```text
 https://aic2026.example.com
 ```
 
-## Kiểm tra hệ thống
+## Checking the system
 
-Mở website bằng trình duyệt Chrome, Edge hoặc Firefox phiên bản mới. Nếu trang không tải được, kiểm tra:
+Open the site in an up-to-date Chrome, Edge or Firefox. If the page does not load, check:
 
-1. Địa chỉ IP hoặc domain có chính xác không.
-2. Thiết bị có cùng mạng với máy production không.
-3. Máy production có đang hoạt động không.
-4. Thử tải lại trang bằng `Ctrl + F5`.
+1. That the IP address or domain is correct.
+2. That your device is on the same network as the production machine.
+3. That the production machine is up.
+4. Reload with `Ctrl + F5`.
 
-## Trạng thái chức năng hiện tại
+## What works today
 
-Frontend và backend core có thể hoạt động, nhưng chức năng tìm kiếm đầy đủ chỉ khả dụng sau khi nhóm tích hợp:
+Visual search (BEiT-3 and Jina), OCR search and ASR search are available. The full feature set depends
+on the operator having connected:
 
-- MongoDB.
-- Frame server và keyframes.
-- Model/checkpoint.
-- Metadata và embeddings.
+- MongoDB with the OCR/ASR corpus.
+- The frame server and the keyframe images.
+- Model checkpoints.
+- Metadata and embeddings.
 
-## Báo lỗi
+## Reporting a problem
 
-Khi gặp lỗi, gửi cho nhóm phát triển:
+Send the development team:
 
-- Thời điểm xảy ra lỗi.
-- Địa chỉ website đang truy cập.
-- Các bước đã thực hiện.
-- Nội dung truy vấn đã nhập.
-- Kết quả mong đợi và kết quả thực tế.
-- Ảnh chụp màn hình hoặc video lỗi.
+- When the error happened.
+- The address you were using.
+- The steps you took.
+- The exact query you typed.
+- What you expected and what you got.
+- A screenshot or screen recording.
 
-Không gửi password, API key, MongoDB URI hoặc Jenkins credential qua nhóm chat.
+Never send passwords, API keys, MongoDB URIs or Jenkins credentials through group chat.
 
-## Những công cụ người dùng không cần truy cập
+## Tools you do not need access to
 
-- GitHub repository: lưu source code.
-- Jenkins: test, build và deploy tự động.
-- GitHub Container Registry: lưu Docker images.
-- MongoDB và Qdrant: lưu dữ liệu và vector.
+- The GitHub repository: source code.
+- Jenkins: automated test, build and deploy.
+- GitHub Container Registry: Docker images.
+- MongoDB and Qdrant: data and vectors.
 
-Người dùng chỉ cần truy cập website production.
+Users only ever need the production website.

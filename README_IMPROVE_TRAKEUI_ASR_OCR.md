@@ -1,198 +1,241 @@
-# Cải tiến: TRAKE UI + ASR search + OCR search
+# Improvements: TRAKE UI + ASR search + OCR search
 
-> Tổng hợp toàn bộ thay đổi trong đợt này và cách cấu hình để chạy. Đọc kèm:
-> [README_TRAKE.md](README_TRAKE.md) (pipeline TRAKE), `AIC2026_IMPROVEMENT_SPEC (1).md` (§8 OCR, §9 ASR, §10.3 TRAKE).
-
----
-
-## 1. Tóm tắt những gì đã làm
-
-1. **TRAKE 3 tầng + rerank** — tìm chuỗi sự kiện theo thời gian, tự sinh tối đa 100 tổ hợp frame.
-   - Tầng 1 chọn video (DP alignment), tầng 2 định vị thô, tầng 3 tinh chỉnh frame gốc (nếu có video).
-   - Rerank khoảnh khắc: **thuật toán** (peak-detection, luôn chạy) + **Qwen2.5-VL local** (khi 2 ứng viên tie).
-2. **TRAKE UI** — panel nhập N event → list tổ hợp → bấm 1 tổ hợp để xem frame verify (ảnh decode từ video).
-3. **ASR search** — tìm theo **nội dung lời nói** (collection `asr_segments`). 2 mode: độc lập / gộp vào search chính.
-4. **OCR search** — tìm theo **chữ trên màn hình** (`ocr_text` trong `frames`). 2 mode như ASR.
-5. **Dọn UI** — bỏ object search cũ (palette, drop area, object fillin, AND/OR, "Text indicator", select temporal-fuzzy). UI toàn bộ **tiếng Anh**.
+> Everything that changed in this round of work and how to configure it. Read alongside
+> [README_TRAKE.md](README_TRAKE.md) (the TRAKE pipeline) and `AIC2026_IMPROVEMENT_SPEC (1).md`
+> (§8 OCR, §9 ASR, §10.3 TRAKE).
 
 ---
 
-## 2. File thêm / sửa / xoá
+## 1. Summary of the work
+
+1. **Three-tier TRAKE + rerank** — finds a chronological sequence of events and generates up to 100
+   ranked frame combinations automatically.
+   - Tier 1 picks the video (DP alignment), tier 2 locates events coarsely, tier 3 refines to the
+     source frame (when the videos are available).
+   - Moment rerank: **algorithmic** (peak detection, always on) plus **local Qwen2.5-VL** (only when the
+     top two candidates tie).
+2. **TRAKE UI** — a panel to enter N events → list of combinations → click one to view its frames for
+   verification (images decoded from the video).
+3. **ASR search** — search **spoken content** (collection `asr_segments`). Two modes: standalone, or
+   merged into the main search.
+4. **OCR search** — search **on-screen text** (`ocr_text` inside `frames`). Same two modes.
+5. **UI cleanup** — removed the old object search (palette, drop area, object fill-in, AND/OR, "Text
+   indicator", temporal-fuzzy selector). The UI is now entirely in English.
+
+---
+
+## 2. Files added / changed / deleted
 
 ### Backend (`backendAIC2025/`)
-| File | Thay đổi |
+
+| File | Change |
 |---|---|
-| `app/services/trake_service.py` | **MỚI** — toàn bộ thuật toán TRAKE (DP, tinh chỉnh, Cartesian, rerank thuật toán + Qwen local) |
-| `app/controllers/trake_controller.py` | **MỚI** — `trake_search()` + `trake_frame()` (decode frame verify) |
-| `app/controllers/asr_controller.py` | **MỚI** — `asr_search()` (độc lập) + `asr_boost_idxset()` (merge) |
-| `app/controllers/ocr_controller.py` | **MỚI** — `ocr_search()` (độc lập) + `ocr_boost_idxset()` (merge) |
-| `app/controllers/search_controller.py` | thêm `ensure_models()`; nhận param `asr`/`ocr` (merge boost) |
-| `app/models/eeiot_model.py` | thêm `get_asr_collection()` → `asr_segments` |
-| `app/routes/search_routes.py` | thêm route `/trake`, `/frame`, `/asr`, `/ocr` |
-| `app/config.py` | thêm các key TRAKE + Qwen (mục 4) |
-| `app/models/search_model.py` | **fix bảo mật**: bỏ Gemini API key hard-code + đường dẫn checkpoint cá nhân → đọc từ `Config` |
-| `requirements.txt` | thêm (comment) dep optional cho Qwen local: `accelerate`, `bitsandbytes`, `qwen-vl-utils` |
+| `app/services/trake_service.py` | **NEW** — the whole TRAKE algorithm (DP, refinement, Cartesian combinations, algorithmic + local Qwen rerank) |
+| `app/controllers/trake_controller.py` | **NEW** — `trake_search()` and `trake_frame()` (decodes a frame for verification) |
+| `app/controllers/asr_controller.py` | **NEW** — `asr_search()` (standalone) and `asr_boost_idxset()` (merge mode) |
+| `app/controllers/ocr_controller.py` | **NEW** — `ocr_search()` (standalone) and `ocr_boost_idxset()` (merge mode) |
+| `app/controllers/search_controller.py` | Added `ensure_models()`; accepts the `asr`/`ocr` parameters for merge boost |
+| `app/models/eeiot_model.py` | Added `get_asr_collection()` → `asr_segments` |
+| `app/routes/search_routes.py` | Added the `/trake`, `/frame`, `/asr` and `/ocr` routes |
+| `app/config.py` | Added the TRAKE and Qwen keys (§4) |
+| `app/models/search_model.py` | **Security fix**: removed the hard-coded Gemini API key and a personal checkpoint path; both now come from `Config` |
+| `requirements.txt` | Added (commented out) the optional local-Qwen dependencies: `accelerate`, `bitsandbytes`, `qwen-vl-utils` |
 
 ### Frontend (`frontend-final/vite-project/src/`)
-| File | Thay đổi |
+
+| File | Change |
 |---|---|
-| `TrakePanel.jsx` | **MỚI** — panel TRAKE (nhập N event → tổ hợp → verify frame) |
-| `AsrResults.jsx` | **MỚI** — hiển thị kết quả ASR độc lập |
-| `api.js` | thêm `trakeSearch`, `asrSearch`, `ocrSearch`, `frameUrl` |
-| `Jobs.jsx` | bỏ object search; thêm block ASR + OCR (toggle 2 mode); nối TrakePanel; UI tiếng Anh |
-| `ItemPalette.jsx`, `DropArea.jsx` | **XOÁ** (dead code sau khi bỏ object search) |
+| `TrakePanel.jsx` | **NEW** — the TRAKE panel (enter N events → combinations → verify frames) |
+| `AsrResults.jsx` | **NEW** — renders standalone ASR results |
+| `api.js` | Added `trakeSearch`, `asrSearch`, `ocrSearch`, `frameUrl` |
+| `Jobs.jsx` | Removed object search; added the ASR and OCR blocks (two-mode toggle); wired in TrakePanel; UI in English |
+| `ItemPalette.jsx`, `DropArea.jsx` | **DELETED** (dead code once object search was removed) |
 
 ### Data / config
-| File | Thay đổi |
+
+| File | Change |
 |---|---|
-| `.env.example` | thêm các key TRAKE + Qwen |
+| `.env.example` | Added the TRAKE and Qwen keys |
 
 ---
 
-## 3. Endpoint mới
+## 3. New endpoints
 
-| Method | Route | Ý nghĩa | Body / Query |
+| Method | Route | Purpose | Body / query |
 |---|---|---|---|
 | POST | `/search/trake` | TRAKE search | `{ "events": ["...","..."], "language": true }` |
-| GET | `/search/frame` | Decode 1 frame gốc để verify | `?L=30&V=068&frame_id=1007` |
-| POST | `/search/asr` | ASR độc lập (nội dung lời nói) | `{ "query": "chủ tịch công bố", "k": 50 }` |
-| POST | `/search/ocr` | OCR độc lập (chữ trên màn hình) | `{ "query": "TEAM A", "k": 100 }` |
-| POST | `/search/collection` | Search chính (đã có) — **thêm** param merge | `{ ..., "asr": "...", "ocr": "..." }` |
+| GET | `/search/frame` | Decode one source frame for verification | `?L=30&V=068&frame_id=1007` |
+| POST | `/search/asr` | Standalone ASR search (spoken content) | `{ "query": "the chairman announced", "k": 50 }` |
+| POST | `/search/ocr` | Standalone OCR search (on-screen text) | `{ "query": "TEAM A", "k": 100 }` |
+| POST | `/search/collection` | Main search (existing) — **new** merge parameters | `{ ..., "asr": "...", "ocr": "..." }` |
 
-> `asr`/`ocr` trong `/search/collection` = mode "gộp": đẩy frame khớp lời nói/chữ lên đầu kết quả.
+> `asr`/`ocr` on `/search/collection` is the "merge" mode: frames whose speech or on-screen text match
+> are pushed to the top of the results.
 
 ---
 
-## 4. Cấu hình `.env`
+## 4. `.env` configuration
 
-**ASR/OCR không cần env mới** — chỉ cần bật Mongo và có data (mục 5). Các key dưới đây là của **TRAKE**:
+**ASR/OCR need no new variables** — they only need Mongo enabled and the data loaded (§5). The keys
+below belong to **TRAKE**:
 
 ```env
-# ===== TRAKE tầng 3 (tinh chỉnh frame gốc) — chỉ bật khi máy có video (vd USB) =====
-TRAKE_TIER3_ENABLED=false          # true = chạy 3 tầng; false = tự động 2 tầng
-VIDEO_ROOT=                        # thư mục chứa video gốc. VD Windows: E:\aic2026_videos | WSL: /mnt/e/aic2026_videos
+# ===== TRAKE tier 3 (source-frame refinement) — enable only if the machine has the videos =====
+TRAKE_TIER3_ENABLED=false          # true = three tiers; false = automatic two tiers
+VIDEO_ROOT=                        # folder holding the original videos, e.g. /mnt/usb/aic2026_videos
 
-TRAKE_TOP_M=150                    # top-M ứng viên/mỗi event ở tầng 1
-TRAKE_TOP_VIDEOS=2                 # số video ứng viên xét
-TRAKE_MAX_COMBOS=100               # tối đa tổ hợp nộp (đề cho 100)
-TRAKE_TIER3_RADIUS=15              # bán kính quét frame gốc quanh vị trí thô (±15)
-TRAKE_TIER3_STRIDE=1               # bước quét (1 = mọi frame)
-TRAKE_VIDEO_CONFIDENCE_THRESHOLD=0.8   # dưới ngưỡng này thì chia slot cho video hạng 2
+TRAKE_TOP_M=150                    # top-M candidates per event in tier 1
+TRAKE_TOP_VIDEOS=2                 # how many candidate videos to consider
+TRAKE_MAX_COMBOS=100               # maximum submissions (the competition allows 100)
+TRAKE_TIER3_RADIUS=15              # scan radius around the coarse position (±15 frames)
+TRAKE_TIER3_STRIDE=1               # scan step (1 = every frame)
+TRAKE_VIDEO_CONFIDENCE_THRESHOLD=0.8   # below this, share slots with the rank-2 video
 
-# ===== Rerank khoảnh khắc tầng 3 =====
-TRAKE_RERANK_TIE_MARGIN=0.03       # 2 ứng viên chênh < mức này = "tie" -> mới gọi Qwen
-TRAKE_QWEN_RERANK_ENABLED=false    # true = bật Qwen local (cần GPU); false = chỉ thuật toán
-QWEN_MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct   # HF id hoặc thư mục local; có thể trỏ bản AWQ/GPTQ
-QWEN_QUANTIZATION=4bit             # 4bit | 8bit | none  (4bit ~6-8GB VRAM cho 7B)
+# ===== Tier-3 moment rerank =====
+TRAKE_RERANK_TIE_MARGIN=0.03       # candidates closer than this count as a "tie" -> only then call Qwen
+TRAKE_QWEN_RERANK_ENABLED=false    # true = enable local Qwen (needs a GPU); false = algorithm only
+QWEN_MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct   # HF id or local folder; may point at an AWQ/GPTQ build
+QWEN_QUANTIZATION=4bit             # 4bit | 8bit | none  (4bit ≈ 6-8GB VRAM for a 7B model)
 QWEN_DEVICE_MAP=auto               # auto | cuda | cpu
 QWEN_MAX_NEW_TOKENS=10
 
-# ===== Bật search + Mongo (cần cho MỌI search kể cả ASR/OCR) =====
+# ===== Enable search + Mongo (required for EVERY search, ASR/OCR included) =====
 SEARCH_ENABLED=true
 MONGO_ENABLED=true
-MONGO_URI2=mongodb://localhost:27017/aic2026   # DB chứa collection frames + asr_segments
+MONGO_URI2=mongodb://localhost:27017/aic2026   # DB holding the frames + asr_segments collections
 ```
 
-### 2 CASE của TRAKE (tự động, không sửa code)
+### The two TRAKE cases (automatic, no code changes)
 
-| | Case 1 — có video (3 tầng) | Case 2 — không video (2 tầng) |
+| | Case 1 — videos available (3 tiers) | Case 2 — no videos (2 tiers) |
 |---|---|---|
-| Bật bằng | `TRAKE_TIER3_ENABLED=true` + `VIDEO_ROOT` trỏ đúng | để mặc định (false/rỗng) |
-| Tinh chỉnh frame gốc | có | tự bỏ qua (dừng ở keyframe) |
-| Rerank | Qwen (nếu `TRAKE_QWEN_RERANK_ENABLED=true`) + thuật toán | **thuật toán** (peak-detection) |
-| Verify ảnh trong UI | decode đúng frame từ video | fallback placeholder (dùng link YouTube + ±10) |
+| Enabled by | `TRAKE_TIER3_ENABLED=true` and a valid `VIDEO_ROOT` | leaving the defaults (false/empty) |
+| Source-frame refinement | yes | skipped, stops at keyframe level |
+| Rerank | Qwen (if `TRAKE_QWEN_RERANK_ENABLED=true`) plus the algorithm | **algorithm** (peak detection) |
+| Verification image in the UI | the exact frame decoded from the video | placeholder fallback (YouTube link + ±10 viewer) |
 
-Response TRAKE trả `"mode"` (`case1_full`/`case2_coarse`), `"tier"` (3/2), `"rerank_method"` (`qwen`/`algorithm`) để biết đang chạy gì.
+The TRAKE response reports `"mode"` (`case1_full`/`case2_coarse`), `"tier"` (3/2) and
+`"rerank_method"` (`qwen`/`algorithm`) so you can tell what actually ran.
 
 ---
 
-## 5. Data cần có trong MongoDB
+## 5. Data required in MongoDB
 
-Backend dùng **1 DB** (theo `MONGO_URI2`) với 2 collection:
+The backend uses **one database** (from `MONGO_URI2`) with two collections.
 
-### `frames` — keyframe (đã có, dùng cho KIS/QA/OCR/TRAKE)
-Mỗi doc = 1 keyframe:
+### `frames` — keyframes (already exists; used by KIS/QA/OCR/TRAKE)
+
+One document per keyframe:
+
 ```json
 {"idx": 315264, "video_id": "L30_V079", "L": "30", "V": "079", "frame_id": 2, "fps": 25.0,
  "frame_stamp": 0.08, "path": "Keyframes/L30_V079/000002.webp", "video_url": "https://youtube.com/watch?v=...",
  "objects": [], "detection": [], "ocr_text": ""}
 ```
-- OCR search dùng field **`ocr_text`**.
-- Nên có index `(video_id, frame_id)` để merge boost nhanh; index `idx` unique.
 
-### `asr_segments` — đoạn lời nói (MỚI, cho ASR)
-Mỗi doc = 1 đoạn ASR (từ `metadata_asr_clean/<video_id>.json`):
+- OCR search uses the **`ocr_text`** field.
+- Add an index on `(video_id, frame_id)` so merge boost is fast, and a unique index on `idx`.
+
+### `asr_segments` — speech segments (NEW, for ASR)
+
+One document per ASR segment, derived from `metadata_asr_clean/<video_id>.json`:
+
 ```json
 {"id": 3106800000, "video_id": "L30_V068", "t_start": 0.0, "t_end": 20.0,
- "frame_start": 0, "frame_end": 500, "text": "rảo bước trên con đường thơ mộng..."}
+ "frame_start": 0, "frame_end": 500, "text": "strolling along the picturesque road..."}
 ```
-- ASR search dùng field **`text`**; merge dùng `frame_start/end` để chiếu về keyframe.
+
+- ASR search uses the **`text`** field; merge mode uses `frame_start`/`frame_end` to project a match
+  back onto keyframes.
 
 ### Full-text search
-- ASR/OCR ưu tiên **Atlas Search index** tên `default` (fuzzy). Không có index → **tự fallback regex** (vẫn chạy, chậm hơn).
-- Nếu dùng Mongo Atlas Local (`mongodb/mongodb-atlas-local`), tạo Atlas Search index `default` trên `frames.ocr_text` và `asr_segments.text`.
+
+- ASR/OCR prefer an **Atlas Search index named `default`** (fuzzy). Without one they **fall back to
+  regex** automatically — still correct, just slower.
+- On Mongo Atlas Local (`mongodb/mongodb-atlas-local`), create the `default` Atlas Search index on
+  `frames.ocr_text` and on `asr_segments.text`.
 
 ---
 
-## 6. Cách chạy & test
+## 6. Running and testing
 
-### Backend (ngoài Docker — vì cần torch/faiss/opencv nặng)
+### Backend
+
+Inside Docker (recommended on Linux — see [README.md](README.md)):
+
 ```bash
-cd backendAIC2025
-pip install -r requirements.txt        # cần thêm torch/faiss/opencv-python
-# (tuỳ chọn Qwen local) pip install accelerate bitsandbytes qwen-vl-utils
-python run.py                          # cần .env có SEARCH_ENABLED=true + Mongo
+docker compose up -d --build backend-api
 ```
+
+Outside Docker, when you need tier-3 video decoding:
+
+```bash
+cd backendAIC2025 && pip install -r requirements.txt && python run.py
+```
+
+Optional local Qwen: `pip install accelerate bitsandbytes qwen-vl-utils`. Either way `.env` needs
+`SEARCH_ENABLED=true` and a reachable Mongo.
 
 ### Frontend
+
 ```bash
-cd frontend-final/vite-project
-npm install
-npm run dev                            # http://localhost:5173
+cd frontend-final/vite-project && npm install && npm run dev
 ```
 
-### Test nhanh endpoint (khi backend chạy)
+The dev server runs at <http://localhost:5173>; the containerized build is served at
+<http://localhost:8088>.
+
+### Endpoint smoke tests
+
 ```bash
-# TRAKE
-curl -X POST localhost:5000/search/trake -H "Content-Type: application/json" \
-  -d '{"events":["vận động viên giậm nhảy","bay qua xà","tiếp đất"],"language":true}'
+curl -X POST localhost:5000/search/trake -H "Content-Type: application/json" -d '{"events":["athlete plants the take-off foot","clears the bar","lands on the mat"],"language":true}'
+```
 
-# ASR
-curl -X POST localhost:5000/search/asr -H "Content-Type: application/json" \
-  -d '{"query":"chủ tịch công bố","k":50}'
+```bash
+curl -X POST localhost:5000/search/asr -H "Content-Type: application/json" -d '{"query":"chủ tịch công bố","k":50}'
+```
 
-# OCR
-curl -X POST localhost:5000/search/ocr -H "Content-Type: application/json" \
-  -d '{"query":"TEAM A","k":100}'
+```bash
+curl -X POST localhost:5000/search/ocr -H "Content-Type: application/json" -d '{"query":"TEAM A","k":100}'
 ```
 
 ---
 
-## 7. UI mới dùng thế nào
+## 7. Using the new UI
 
-- **Mode selector** (góc phải): KIS / QA / **TRAKE**.
-  - Chọn **TRAKE** → hiện panel: nhập N event (Add event) → **TRAKE search** → list tổ hợp → bấm 1 tổ hợp để bung grid frame verify.
-- **Sidebar (nút menu)**: 2 khối search text — **ASR search** (spoken content) và **OCR search** (on-screen text).
-  - Mỗi khối có toggle **Standalone** (search riêng, hiện kết quả) / **Merge into main search** (gộp vào nút search Screen 1/2/3, đẩy frame khớp lên đầu).
-
----
-
-## 8. ⚠️ Reconcile với Mongo/Qdrant của teammate
-
-Backend đây build theo **schema data đang có**. Khi pull code teammate (Mongo/Qdrant) về, kiểm tra:
-1. **Tên collection ASR**: đang là `asr_segments` (`app/models/eeiot_model.py`). Nếu teammate đặt khác → đổi cho khớp.
-2. **Field name**: `ocr_text` (frames), `text/frame_start/frame_end/video_id` (asr_segments). Khớp lại nếu khác.
-3. **Atlas Search index** `default` trên `ocr_text` / `text` — chưa có thì đang chạy regex fallback.
-4. **Data ASR chưa nạp**: nếu teammate chưa nạp `metadata_asr_clean/*.json` vào `asr_segments`, cần script ingest (chưa viết — báo mình nếu cần).
-5. **Qdrant/embedding semantic cho ASR/OCR**: hiện ASR/OCR chạy **full-text lexical (Mongo)**. Khi Qdrant + embeddings sẵn sàng thì thêm leg semantic sau.
+- **Mode selector** (top right): KIS / QA / **TRAKE**.
+  - Choosing **TRAKE** opens the panel: add N events (Add event) → **TRAKE search** → list of
+    combinations → click one to expand the verification frame grid.
+- **Sidebar (menu button)**: two text-search blocks — **ASR search** (spoken content) and **OCR search**
+  (on-screen text).
+  - Each block has a toggle: **Standalone** (its own results) or **Merge into main search** (folds into
+    the Screen 1/2/3 search button and pushes matching frames to the top).
 
 ---
 
-## 9. Checklist PR (theo README_MEMBERS.md)
+## 8. ⚠️ Reconciling with a teammate's Mongo/Qdrant
 
-- **Env key mới**: các key `TRAKE_*`, `QWEN_*` ở mục 4 (đã cập nhật `.env.example`).
-- **Endpoint mới**: `/search/trake`, `/search/frame`, `/search/asr`, `/search/ocr`; `/search/collection` thêm `asr`/`ocr`.
-- **Data mới**: collection `asr_segments` cần được nạp.
-- **Không commit**: `.env`, video/keyframe, checkpoint, embeddings.
-- **Ảnh hưởng model**: Qwen2.5-VL chạy **local + quantize** (không API); CLIP là leg chính (BEiT-3 chưa dùng cho TRAKE vì thiếu package `beit3/`).
-```
+This backend was built against **the schema we currently have**. When pulling a teammate's Mongo or
+Qdrant work, check:
+
+1. **ASR collection name**: ours is `asr_segments` (`app/models/eeiot_model.py`). Rename if theirs
+   differs.
+2. **Field names**: `ocr_text` (frames) and `text`/`frame_start`/`frame_end`/`video_id`
+   (asr_segments). Align if theirs differ.
+3. **Atlas Search index `default`** on `ocr_text` / `text` — without it you are on the regex fallback.
+4. **ASR data not loaded**: if `metadata_asr_clean/*.json` has not been ingested into `asr_segments`, an
+   ingest script is needed (not written yet — ask if you need it).
+5. **Semantic embeddings for ASR/OCR**: today ASR/OCR are **lexical full-text (Mongo)** only. Add a
+   semantic leg once Qdrant embeddings for them exist.
+
+---
+
+## 9. PR checklist (per README_MEMBERS.md)
+
+- **New env keys**: the `TRAKE_*` and `QWEN_*` keys from §4 (already in `.env.example`).
+- **New endpoints**: `/search/trake`, `/search/frame`, `/search/asr`, `/search/ocr`; `/search/collection`
+  gained `asr`/`ocr`.
+- **New data**: the `asr_segments` collection must be ingested.
+- **Never commit**: `.env`, videos/keyframes, checkpoints, embeddings.
+- **Model impact**: Qwen2.5-VL runs **locally and quantized** (no API); CLIP is the main leg (BEiT-3 is
+  not used for TRAKE yet because the `beit3/` package is missing there).

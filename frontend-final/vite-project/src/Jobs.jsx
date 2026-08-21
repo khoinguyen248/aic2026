@@ -640,7 +640,7 @@ function Jobs() {
                 }}
               >
                 <h1 style={{ fontSize: '65px', margin: 0 }}>EEIOT HCMUT</h1>
-                <h2 style={{ fontSize: '40px', color: 'grey', margin: 0 }}>AIC 2025</h2>
+                <h2 style={{ fontSize: '40px', color: 'grey', margin: 0 }}>AIC 2026</h2>
               </div>
             )}
           </div>

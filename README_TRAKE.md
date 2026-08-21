@@ -1,115 +1,114 @@
-# TRAKE — cách hiện thực (cho team đọc/sửa code)
+# TRAKE — implementation guide (for people reading or changing the code)
 
-> Mục tiêu file này: giúp người **chưa từng đụng vào code TRAKE** đọc xong là biết code nằm ở đâu,
-> chạy theo thứ tự nào, muốn sửa/thêm gì thì sửa ở đúng hàm nào. Không đi sâu công thức toán —
-> cần công thức chi tiết thì đọc thẳng code trong `trake_service.py` (đã có comment tại chỗ khó hiểu).
+> Purpose of this file: after reading it, someone who has **never touched the TRAKE code** should know
+> where the code lives, in what order it runs, and which function to edit for a given change. It does
+> not go deep into the maths — for that, read `trake_service.py` directly, where the tricky parts carry
+> inline comments.
 
-## 1. Sơ đồ tổng quan — ai gọi ai
+## 1. Call graph — who calls whom
 
 ```
 Client (frontend/Postman)
    │  POST /search/trake  {events: [...], language: true}
    ▼
-search_routes.py            -> chỉ khai báo route, gọi thẳng qua controller
+search_routes.py            -> route declaration only, delegates to the controller
    ▼
-trake_controller.py         -> đọc request, dịch VI->EN nếu cần, load model, gọi service
+trake_controller.py         -> reads the request, translates VI->EN if asked, loads models, calls the service
    ▼
-trake_service.run_trake()   -> hàm "nhạc trưởng", gọi lần lượt 4 bước bên dưới
+trake_service.run_trake()   -> the conductor; runs the four steps below in order
    │
-   ├─ 1. select_video_dp()        -> chọn video đúng nhất
-   ├─ 2. allocate_video_slots()   -> chia slot nộp bài cho video hạng 1/hạng 2
-   ├─ 3. locate_events_exact()    -> định vị thô từng event trong video đã chọn
-   ├─ 4. refine_event_fine()      -> (nếu có video gốc) tinh chỉnh xuống frame gốc
-   │        └─ rerank khoảnh khắc: thuật toán (mặc định) hoặc Qwen (khi tie + đã bật)
-   └─ 5. build_cartesian_submissions() -> ghép thành nhiều phương án nộp, xếp hạng
+   ├─ 1. select_video_dp()        -> pick the right video
+   ├─ 2. allocate_video_slots()   -> split the submission slots between rank 1 and rank 2 videos
+   ├─ 3. locate_events_exact()    -> coarsely locate each event inside the chosen video
+   ├─ 4. refine_event_fine()      -> (only with original videos) refine down to the exact source frame
+   │        └─ moment rerank: algorithmic (default) or Qwen (on a tie, when enabled)
+   └─ 5. build_cartesian_submissions() -> combine into many ranked submissions
    ▼
-Trả JSON: {mode, video_candidates, submissions}
+Returns JSON: {mode, video_candidates, submissions}
 ```
 
-## 2. File nào làm việc gì
+## 2. Which file does what
 
-| File | Vai trò |
+| File | Role |
 |---|---|
-| [`app/routes/search_routes.py`](backendAIC2025/app/routes/search_routes.py) | Khai báo route `POST /search/trake`, không chứa logic |
-| [`app/controllers/trake_controller.py`](backendAIC2025/app/controllers/trake_controller.py) | Nhận request HTTP, validate input, gọi model + service, trả JSON |
-| [`app/controllers/search_controller.py`](backendAIC2025/app/controllers/search_controller.py) | Có hàm `ensure_models()` — load CLIP/FAISS **1 lần duy nhất** (singleton), TRAKE dùng lại chung, không load riêng |
-| [`app/services/trake_service.py`](backendAIC2025/app/services/trake_service.py) | **Toàn bộ thuật toán nằm ở đây** — file duy nhất cần đọc nếu muốn hiểu/sửa logic TRAKE |
-| [`app/config.py`](backendAIC2025/app/config.py) | Các biến cấu hình TRAKE đọc từ `.env` (bật/tắt tinh chỉnh, đường dẫn video, bật/tắt Qwen rerank, ...) |
+| [`app/routes/search_routes.py`](backendAIC2025/app/routes/search_routes.py) | Declares `POST /search/trake`; no logic |
+| [`app/controllers/trake_controller.py`](backendAIC2025/app/controllers/trake_controller.py) | Handles the HTTP request, validates input, calls model + service, returns JSON |
+| [`app/controllers/search_controller.py`](backendAIC2025/app/controllers/search_controller.py) | Holds `ensure_models()` — loads CLIP/FAISS **exactly once** (singleton). TRAKE reuses it instead of loading its own copy |
+| [`app/services/trake_service.py`](backendAIC2025/app/services/trake_service.py) | **The whole algorithm lives here** — the only file to read if you want to understand or change TRAKE logic |
+| [`app/config.py`](backendAIC2025/app/config.py) | TRAKE settings read from `.env` (refinement on/off, video path, Qwen rerank on/off, ...) |
 
-## 3. Đi từng bước trong `trake_service.py`
+## 3. Step by step through `trake_service.py`
 
-### Bước 0 — biến câu chữ thành vector
+### Step 0 — turn sentences into vectors
 
 ```python
 event_vecs = encode_texts(events_text, clip_bundle, device)
 ```
-Mỗi câu mô tả event → 1 vector số (CLIP text encoder). Có `event_vecs[0]` cho event 1,
-`event_vecs[1]` cho event 2, v.v. Toàn bộ so khớp phía sau đều là **so vector với vector** bằng
-tích vô hướng (càng cao càng giống nhau).
 
-### Bước 1 — `select_video_dp()`: tìm đúng video
+Each event description becomes one vector (CLIP text encoder): `event_vecs[0]` for event 1,
+`event_vecs[1]` for event 2, and so on. Every match later is a **vector-versus-vector** dot product —
+higher means more similar.
 
-Cách làm đơn giản hoá:
-1. Với mỗi event, tìm top-150 keyframe giống nhất **trong toàn bộ kho** (không phân biệt video).
-2. Gom các keyframe đó theo video (`L`, `V`).
-3. Video nào **có mặt đủ trong top-150 của TẤT CẢ event** mới được xét tiếp (video thiếu 1 event
-   coi như chưa đủ bằng chứng, bỏ qua).
-4. Với mỗi video còn lại, tính "đường đi tốt nhất" qua các event **theo đúng thứ tự thời gian**
-   (event sau phải xảy ra sau event trước — không được đảo ngược). Hàm phụ trách việc này là
-   `_dp_align()` — nếu tò mò cách nó chọn đường đi tối ưu, đọc comment trong hàm.
-5. Video có tổng điểm đường đi cao nhất → được chọn.
+### Step 1 — `select_video_dp()`: find the right video
 
-Nếu không video nào đủ dữ liệu (bước 3 loại hết) → tự động thử lại với top-450, rồi top-1350
-(tăng dần x3, tối đa 3 lần) trước khi báo lỗi "không tìm được video".
+Simplified:
 
-### Bước 2 — `allocate_video_slots()`: có nên tin tuyệt đối vào video hạng 1 không?
+1. For each event, take the top-150 most similar keyframes **across the whole corpus**, regardless of
+   video.
+2. Group those keyframes by video (`L`, `V`).
+3. Only videos that appear in the top-150 of **every** event stay in the running. A video missing one
+   event is treated as insufficient evidence and dropped.
+4. For each remaining video, compute the best path through the events **in chronological order** — a
+   later event must occur after an earlier one, no reordering allowed. `_dp_align()` does this; read
+   its comments if you want to know how the optimal path is chosen.
+5. The video with the highest total path score wins.
 
-Đề cho nộp tối đa 100 phương án. Nếu video hạng 1 và hạng 2 điểm số sít sao (không chắc chắn),
-dồn hết 100 phương án cho hạng 1 là mạo hiểm. Hàm này chia:
-- Nếu hạng 1 "rất tự tin" (vượt ngưỡng `TRAKE_VIDEO_CONFIDENCE_THRESHOLD`, mặc định 0.8) → dồn hết
-  100 slot cho hạng 1.
-- Nếu không chắc → chia sẻ, ví dụ 80 slot cho hạng 1, 20 slot cho hạng 2.
+If no video survives step 3, the search automatically retries with top-450, then top-1350 (×3 each
+time, at most three attempts) before reporting "no video found".
 
-### Bước 3 — `locate_events_exact()`: định vị thô từng event trong video đã chọn
+### Step 2 — `allocate_video_slots()`: should we fully trust the top video?
 
-Lấy toàn bộ keyframe của đúng video đó (không lẫn video khác), so từng event với từng keyframe,
-chọn khớp nhất — **nhưng bắt buộc keyframe của event sau phải đứng sau keyframe của event trước**
-(nếu không, code sẽ tự nới lỏng ràng buộc để tránh trả về rỗng). Hàm trả về **top-3 ứng viên** mỗi
-event (không chỉ 1), để dùng cho bước ghép tổ hợp ở bước 5.
+The competition allows up to 100 submissions. If rank 1 and rank 2 score close to each other, spending
+all 100 on rank 1 is a gamble. This function splits them:
 
-### Bước 4 — `refine_event_fine()`: tinh chỉnh xuống frame gốc (CHỈ CHẠY NẾU CÓ VIDEO GỐC)
+- Rank 1 is "very confident" (above `TRAKE_VIDEO_CONFIDENCE_THRESHOLD`, default 0.8) → all 100 slots go
+  to rank 1.
+- Otherwise the slots are shared, for example 80 for rank 1 and 20 for rank 2.
 
-Đây là bước duy nhất cần **file video thật** (không chỉ keyframe). Với vị trí thô tìm được ở
-Bước 3, mở video gốc, đọc khoảng 30 frame xung quanh (±15 frame), so từng frame với event bằng
-CLIP → có 1 đường cong điểm số theo thời gian. Việc "có chạy bước này hay không" được quyết định
-tự động — xem mục 4 (Case 1/2).
+### Step 3 — `locate_events_exact()`: coarse position of each event
 
-**Rerank khoảnh khắc (chọn đúng frame trong số các frame gần giống nhau):**
-1. **Mặc định — thuật toán, miễn phí, luôn chạy** (`pick_semantic_frame_algorithmic()`): thay vì
-   chỉ lấy điểm cao nhất (argmax), tìm **đỉnh rõ rệt** trên đường cong điểm số (peak/prominence,
-   dùng `scipy.signal.find_peaks`) — tách được "khoảnh khắc" thật ra khỏi một dải nhiều frame gần
-   giống hệt nhau mà CLIP không phân biệt nổi. Nếu không tìm được đỉnh nào (hoặc thiếu scipy),
-   tự rơi về argmax thường — không bao giờ tệ hơn cách cũ.
-2. **Tuỳ chọn — Qwen2.5-VL (chạy LOCAL), chỉ gọi khi thật sự cần**: nếu 2 ứng viên đầu (sau bước
-   1) vẫn **tie sít sao** (chênh lệch điểm < `TRAKE_RERANK_TIE_MARGIN`, mặc định 0.03) **và** đã bật
-   `TRAKE_QWEN_RERANK_ENABLED=true` → đưa các frame đang tie kèm mô tả event cho Qwen chọn đúng
-   khoảnh khắc ngữ nghĩa. Qwen được **load local qua transformers và giữ ấm trên GPU** (spec mục
-   13), **quantize 4bit/8bit** để giảm VRAM/RAM cho model 7B/72B — **không dùng API bên ngoài**.
-   Nếu load/inference lỗi (thiếu GPU, thiếu thư viện, ...) → **tự fallback về kết quả thuật toán**,
-   không bao giờ làm hỏng kết quả.
+Take every keyframe of that one video (no cross-video mixing), score each event against each keyframe,
+and keep the best match — **subject to the constraint that a later event's keyframe must come after the
+earlier event's**. If that constraint yields nothing, the code relaxes it rather than returning empty.
+The function returns the **top-3 candidates per event**, not just one, which is what feeds the
+combination step.
 
-Cơ chế bật/tắt Qwen **giống hệt kiểu Case 1/2** đã làm cho tier 3 — tự động theo cấu hình, không
-cần sửa code khi đổi máy.
+### Step 4 — `refine_event_fine()`: refine to the source frame (ONLY WITH ORIGINAL VIDEOS)
 
-### Bước 5 — `build_cartesian_submissions()`: ghép thành nhiều phương án nộp
+This is the one step that needs the **real video file**, not just keyframes. Starting from the coarse
+position of step 3, it opens the source video, reads about 30 frames around it (±15), scores each frame
+against the event with CLIP, and gets a score curve over time. Whether this step runs at all is decided
+automatically — see §4 (Case 1/2).
 
-Mỗi event đang có vài ứng viên (top-3). Thay vì chỉ ghép ứng viên #1 của từng event thành 1 phương
-án duy nhất, hàm này **ghép mọi tổ hợp có thể** (event1-ứng viên nào × event2-ứng viên nào × ...),
-loại tổ hợp nào không đúng thứ tự thời gian, xếp hạng theo độ tin cậy, lấy tối đa 100 (hoặc số
-slot được chia ở Bước 2). Lý do làm vậy: đề chấm điểm theo "trúng ở bất kỳ phương án nào trong 100
-phương án nộp", nên nộp nhiều phương án hợp lý tăng khả năng trúng hơn hẳn chỉ nộp 1 phương án.
+**Moment rerank (choosing the right frame among near-identical ones):**
 
-## 4. Case 1 (đủ video gốc) / Case 2 (không có) — điểm quyết định nằm ở đâu trong code
+1. **Default — algorithmic, free, always on** (`pick_semantic_frame_algorithmic()`): instead of taking
+   the maximum score (argmax), it looks for a **distinct peak** in the score curve (prominence, via
+   `scipy.signal.find_peaks`). That separates the real "moment" from a stretch of frames CLIP cannot
+   tell apart. If no peak is found (or scipy is missing) it falls back to plain argmax, so it is never
+   worse than the old behaviour.
+2. **Optional — Qwen2.5-VL running LOCALLY, called only when needed**: if the top two candidates are
+   still a **close tie** (score gap < `TRAKE_RERANK_TIE_MARGIN`, default 0.03) **and**
+   `TRAKE_QWEN_RERANK_ENABLED=true`, the tied frames plus the event description go to Qwen, which picks
+   the semantically correct moment. Qwen is **loaded locally through transformers and kept warm on the
+   GPU** (spec §13), **quantized to 4bit/8bit** to fit the VRAM of a 7B/72B model — **no external API is
+   used**. If loading or inference fails (no GPU, missing library, ...) it **falls back to the
+   algorithmic result** and never breaks the response.
+
+The Qwen on/off mechanism works **exactly like the Case 1/2 switch** used for tier 3: driven by
+configuration, no code changes when moving to another machine.
+
+## 4. Case 1 (original videos available) vs Case 2 (not) — where the decision lives
 
 ```python
 def tier3_globally_ready():
@@ -118,23 +117,23 @@ def tier3_globally_ready():
     if not Config.VIDEO_ROOT or not os.path.isdir(Config.VIDEO_ROOT):
         return False, "..."
     ...
-    return True, "tier 3 sẵn sàng"
+    return True, "tier 3 ready"
 ```
 
-Hàm này được gọi 1 lần trong `run_trake()`. Nếu trả `False` → toàn bộ Bước 4 (tinh chỉnh) bị bỏ
-qua, code dùng thẳng kết quả thô của Bước 3 làm ứng viên cho Bước 5. Muốn bật Case 1, chỉ cần set
-2 biến trong `.env`:
+`run_trake()` calls this once. On `False`, the whole of step 4 is skipped and the coarse results of
+step 3 feed step 5 directly. To enable Case 1, set two variables in `.env`:
 
 ```env
 TRAKE_TIER3_ENABLED=true
-VIDEO_ROOT=E:\aic2026_videos
+VIDEO_ROOT=/mnt/usb/aic2026_videos
 ```
 
-Không set (hoặc set nhưng USB chưa gắn) → tự rơi về Case 2, không cần sửa code, không crash.
+Leave them unset — or set them while the USB drive is unplugged — and it falls back to Case 2 without
+code changes and without crashing.
 
-**Rerank Qwen cũng có công tắc riêng tương tự** (`qwen_rerank_ready()`), độc lập với Case 1/2.
-Qwen chạy **local** (load qua transformers, giữ ấm trên GPU, quantize để tiết kiệm RAM/VRAM),
-**không dùng API**:
+**Qwen rerank has its own equivalent switch** (`qwen_rerank_ready()`), independent of Case 1/2. Qwen
+runs **locally** (loaded through transformers, kept warm on the GPU, quantized to save RAM/VRAM), **not
+through an API**:
 
 ```env
 TRAKE_QWEN_RERANK_ENABLED=true
@@ -144,37 +143,44 @@ QWEN_DEVICE_MAP=auto
 QWEN_MAX_NEW_TOKENS=10
 ```
 
-- `QWEN_QUANTIZATION=4bit` (mặc định): model 7B chạy vừa ~6–8GB VRAM nhờ bitsandbytes. `8bit` nếu
-  VRAM dư; `none` nếu bạn trỏ `QWEN_MODEL_PATH` tới bản **đã prequant AWQ/GPTQ**.
-- Cần cài thêm (chỉ khi bật Qwen, cần GPU): `accelerate`, `bitsandbytes` (cho 4bit/8bit),
-  và `qwen-vl-utils` — đã liệt kê dạng comment trong `requirements.txt`.
-- Model load **lazy 1 lần** ở lần rerank đầu tiên rồi giữ ấm; nếu load lỗi (không GPU / thiếu thư
-  viện) → tự tắt Qwen và dùng thuật toán, không crash. Không bật → luôn chỉ dùng thuật toán.
+- `QWEN_QUANTIZATION=4bit` (default): a 7B model fits in ~6–8GB VRAM thanks to bitsandbytes. Use `8bit`
+  if you have VRAM to spare, or `none` when `QWEN_MODEL_PATH` already points at a **prequantized
+  AWQ/GPTQ** build.
+- Extra packages, needed only when Qwen is enabled (and it needs a GPU): `accelerate`, `bitsandbytes`
+  (for 4bit/8bit) and `qwen-vl-utils` — listed as comments in `requirements.txt`.
+- The model is loaded **lazily, once**, on the first rerank and then kept warm. If loading fails (no
+  GPU, missing library) Qwen switches itself off and the algorithmic path is used instead. Leave it
+  disabled and only the algorithm ever runs.
 
-## 5. Muốn thêm/sửa gì thì sửa ở đâu
+## 5. Where to change what
 
-| Muốn làm | Sửa ở |
+| Goal | Edit |
 |---|---|
-| Đổi số lượng ứng viên video xét (hiện tại top-2) | `Config.TRAKE_TOP_VIDEOS` trong `.env` |
-| Đổi bán kính quét tinh chỉnh (hiện tại ±15 frame) | `Config.TRAKE_TIER3_RADIUS` |
-| Đổi ngưỡng coi là "tie" để gọi Qwen | `Config.TRAKE_RERANK_TIE_MARGIN` |
-| Đổi prompt gửi Qwen | `qwen_rerank_candidates()` trong `trake_service.py` |
-| Đổi cách load/quantize Qwen | `_load_qwen()` trong `trake_service.py` + các biến `QWEN_*` trong `.env` |
-| Thêm leg BEiT-3 hoặc jina-clip-v2 cho TRAKE (hiện chỉ dùng CLIP) | Viết thêm `encode_texts_beit3()`/`encode_images_beit3()` tương tự `encode_texts()`/`encode_images()` trong `trake_service.py`, rồi cho `run_trake()` nhận thêm 1 `model_bundle` |
-| Đổi công thức chọn video (Bước 1) | `_dp_align()` + `select_video_dp()` |
-| Đổi cách sinh tổ hợp nộp (Bước 5) | `build_cartesian_submissions()` + `nms_candidates()` |
-| Test nhanh logic mà không cần Mongo/model thật | `_dp_align`, `build_cartesian_submissions`, `pick_semantic_frame_algorithmic`, `qwen_rerank_ready`, `qwen_rerank_candidates` đều là hàm thuần (pure function hoặc tự fallback an toàn) — gọi trực tiếp với dữ liệu giả lập được, không cần Flask/DB/model thật |
+| Change how many candidate videos are considered (currently top-2) | `Config.TRAKE_TOP_VIDEOS` in `.env` |
+| Change the refinement radius (currently ±15 frames) | `Config.TRAKE_TIER3_RADIUS` |
+| Change the score gap that counts as a "tie" for Qwen | `Config.TRAKE_RERANK_TIE_MARGIN` |
+| Change the prompt sent to Qwen | `qwen_rerank_candidates()` in `trake_service.py` |
+| Change how Qwen is loaded or quantized | `_load_qwen()` in `trake_service.py` plus the `QWEN_*` variables |
+| Add a BEiT-3 or jina-clip-v2 leg to TRAKE (CLIP only today) | Write `encode_texts_beit3()`/`encode_images_beit3()` alongside `encode_texts()`/`encode_images()` in `trake_service.py`, then let `run_trake()` accept an extra `model_bundle` |
+| Change how the video is chosen (step 1) | `_dp_align()` + `select_video_dp()` |
+| Change how submissions are generated (step 5) | `build_cartesian_submissions()` + `nms_candidates()` |
+| Test the logic quickly without Mongo or real models | `_dp_align`, `build_cartesian_submissions`, `pick_semantic_frame_algorithmic`, `qwen_rerank_ready` and `qwen_rerank_candidates` are pure functions (or fall back safely), so you can call them with fake data — no Flask, DB or model required |
 
-## 6. Dùng API nhanh (để test tay)
+## 6. Quick API use (manual testing)
 
 ```
 POST /search/trake
-{ "events": ["mô tả event 1", "mô tả event 2", "..."], "language": true }
+{ "events": ["description of event 1", "description of event 2", "..."], "language": true }
 ```
 
-Trả về `submissions`: danh sách `{video_id, frame_ids}` đã xếp hạng sẵn, lấy từ đầu danh sách để
-nộp bài. Response còn có `qwen_rerank_globally_ready`, `qwen_rerank_reason`,
-`qwen_rerank_used_events` để biết Qwen có thực sự được gọi lần nào không.
+The response contains `submissions`: a ranked list of `{video_id, frame_ids}` — take them from the top
+of the list to submit. It also reports `qwen_rerank_globally_ready`, `qwen_rerank_reason` and
+`qwen_rerank_used_events` so you can tell whether Qwen was actually invoked.
 
-Cần `SEARCH_ENABLED=true` và chạy backend ngoài Docker (`python run.py`) vì Docker hiện chưa cài
-torch/faiss/opencv/scipy.
+Requires `SEARCH_ENABLED=true`.
+
+**Running inside Docker:** the `search` and `search-cuda` image stages ship torch, scipy and
+open_clip, so the vector part of TRAKE runs in the container. Tier 3 does not: `opencv-python` is
+installed but `import cv2` fails with `libGL.so.1: cannot open shared object file`, because the
+`python:3.11-slim` base has no OpenGL runtime. Until the image switches to `opencv-python-headless` (or
+installs `libgl1`), run tier-3 refinement and `/search/frame` outside Docker with `python run.py`.
