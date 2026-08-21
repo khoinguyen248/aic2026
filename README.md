@@ -1,4 +1,4 @@
-# Multimodal Video Retrieval System - AI HCM Challenge 2025
+# Multimodal Video Retrieval System for Linux
 
 ## Project Overview
 

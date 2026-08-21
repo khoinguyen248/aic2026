@@ -1,0 +1,18 @@
+# Override cho máy Linux có NVIDIA GPU + nvidia-container-toolkit.
+# Kích hoạt qua .env: COMPOSE_FILE=compose.yaml:compose.gpu.yaml
+# Cần BACKEND_BUILD_TARGET=search-cuda và SEARCH_DEVICE=cuda trong .env.
+
+services:
+  backend-api:
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu

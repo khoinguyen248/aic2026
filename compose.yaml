@@ -121,7 +121,7 @@ services:
       start_period: 10s
 
   mongodb:
-    image: mongodb/mongodb-atlas-local:preview
+    image: mongodb/mongodb-atlas-local:8.0.25
 
     restart: unless-stopped
 
@@ -154,15 +154,15 @@ services:
 volumes:
   mongodb_data:
     external: true
-    name: aic2026_mongodb_data
+    name: aic2026_mongodb_data_v2
 
   mongodb_config:
     external: true
-    name: aic2026_mongodb_config
+    name: aic2026_mongodb_config_v2
 
   mongodb_mongot:
     external: true
-    name: aic2026_mongodb_mongot
+    name: aic2026_mongodb_mongot_v2
 
   huggingface_cache:
     name: aic2026_huggingface_cache
