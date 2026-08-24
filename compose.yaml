@@ -6,6 +6,12 @@ services:
       context: ./backendAIC2025
       dockerfile: Dockerfile
       target: "${BACKEND_BUILD_TARGET:-production}"
+      args:
+        TORCH_INDEX: "${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}"
+        GPU_EXTRAS: "${GPU_EXTRAS:-}"
+
+    # GPU cho Qwen (chỉ có tác dụng khi Docker Desktop bật GPU; search vẫn chạy CPU).
+    gpus: all
 
     restart: unless-stopped
 
@@ -43,6 +49,9 @@ services:
       - "./runtime-data/checkpoints:/models:ro"
       - "./runtime-data/keyframes:/data/keyframes:ro"
       - "${VIDEO_HOST_PATH:-./runtime-data/videos}:/data/videos:ro"
+      # Mount code từ host -> sửa code chỉ cần `docker compose restart backend-api`, KHỎI rebuild.
+      - "./backendAIC2025/app:/app/app"
+      - "./backendAIC2025/search_engine:/app/search_engine"
       - huggingface_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
 

@@ -162,7 +162,6 @@ class JinaOmniEncoder(BaseEncoder):
         with torch.inference_mode():
             inputs = self.processor(text=f"Query: {text}", return_tensors="pt").to(self.device)
             output = self.model.embed(**inputs).to(torch.float32)
-            print(output)
         return l2_normalize(output[0].detach().cpu().numpy())
 
     def encode_image(self, image: str | Path | Image.Image) -> np.ndarray:
@@ -200,7 +199,8 @@ class OpenCLIPEncoder(BaseEncoder):
         tensor = self.preprocess(load_image(image)).unsqueeze(0).to(self.device)
         with torch.inference_mode():
             output = self.model.encode_image(tensor, normalize=True).to(torch.float32)
-        return l2_normalize(output.detach().cpu().numpy())
+        # output shape [1, D] -> lấy [0] cho vector 1D (khớp collection thường, tránh Qdrant hiểu là multi-vector)
+        return l2_normalize(output[0].detach().cpu().numpy())
 
 
 class ModelRegistry:

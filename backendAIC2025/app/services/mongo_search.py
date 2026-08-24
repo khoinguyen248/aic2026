@@ -218,3 +218,18 @@ def asr_ranges_in_video(
         if s is not None and e is not None:
             ranges.append((int(s), int(e)))
     return ranges
+
+
+def keyframes_in_range(video_id, frame_start, frame_end, limit: int = 50):
+    """[(frame_id, path)] các keyframe nằm trong [frame_start, frame_end] của 1 video (sort theo frame_id).
+    Dùng cho event chỉ có ASR: lấy keyframe trong đoạn lời nói làm ứng viên."""
+    coll = get_database()["ocr_metadata"]
+    cur = (
+        coll.find(
+            {"video_id": video_id, "frame_id": {"$gte": int(frame_start), "$lte": int(frame_end)}},
+            {"_id": 0, "frame_id": 1, "path": 1},
+        )
+        .sort("frame_id", 1)
+        .limit(limit)
+    )
+    return [(d["frame_id"], d.get("path")) for d in cur if d.get("frame_id") is not None]

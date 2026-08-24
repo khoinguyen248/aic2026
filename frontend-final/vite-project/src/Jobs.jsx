@@ -17,6 +17,7 @@ import Ansbox from './Ansbox.jsx';
 import Ansbox1 from './Ansbox1.jsx';
 import Ansbox2 from './Ansbox2.jsx';
 import TrakePanel from './TrakePanel.jsx';
+import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
 
 function Jobs() {
@@ -393,8 +394,8 @@ function Jobs() {
               onRemove={clearImage}
             >
               <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">Kéo thả ảnh vào đây</p>
-              <p className="ant-upload-hint">Hoặc nhấn để chọn JPG, PNG, WEBP</p>
+              <p className="ant-upload-text">Drag & drop image here</p>
+              <p className="ant-upload-hint">Or click to select JPG, PNG, WEBP</p>
             </Upload.Dragger>
 
             {imagePreview && (
@@ -467,6 +468,9 @@ function Jobs() {
               )}
               {ocrError && <div style={{ color: "#d4380d", fontSize: 12 }}>{ocrError}</div>}
             </div>
+
+            <div style={{ borderTop: '1px solid #eee', margin: '6px 0' }} />
+            <FrameCalc />
           </div>
 
         </Drawer>
@@ -504,7 +508,7 @@ function Jobs() {
           >
             <Input
               style={{ flex: 1, borderRadius: 8 }}
-              placeholder={searchMode === "visual" ? "Tìm kiếm cảnh (1 truy vấn — nhiều sự kiện dùng TRAKE)" : "Nhập nội dung OCR/ASR"}
+              placeholder={searchMode === "visual" ? "Search a scene (1 query — use TRAKE for multiple events)" : "Enter OCR/ASR content"}
               value={screen1}
               onChange={(e) => setScreen1(e.target.value)}
             />

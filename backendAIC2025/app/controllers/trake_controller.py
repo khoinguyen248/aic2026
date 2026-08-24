@@ -30,12 +30,11 @@ def trake_search():
         data = request.get_json(force=True, silent=True) or {}
 
         events = data.get("events")
-        if not isinstance(events, list) or len(events) < 2 or not all(
-            isinstance(e, str) and e.strip() for e in events
-        ):
+        if not isinstance(events, list) or len(events) < 2:
             return jsonify(
-                {"ok": False, "error": "events must be a list of >= 2 description strings (in chronological order)"}
+                {"ok": False, "error": "events must be a list of >= 2 items (in chronological order)"}
             ), 400
+        events = [(str(e) if e is not None else "") for e in events]
 
         model = _model_from_request(data.get("model"))
         language = bool(data.get("language", False))  # True = query nhập bằng tiếng Việt
@@ -59,12 +58,26 @@ def trake_search():
         events_ocr = _parse_side("events_ocr")
         events_asr = _parse_side("events_asr")
 
+        # Mỗi event phải có ÍT NHẤT 1 trong: mô tả hình / OCR / ASR (không bắt buộc mô tả hình).
+        def _side_has(arr, i):
+            return bool(arr and i < len(arr) and str(arr[i]).strip())
+
+        for i, e in enumerate(events):
+            if not (e.strip() or _side_has(events_ocr, i) or _side_has(events_asr, i)):
+                return jsonify(
+                    {"ok": False, "error": f"event {i + 1} rỗng: cần mô tả hình HOẶC OCR HOẶC ASR"}
+                ), 400
+
         events_text = events
         if language:
             try:
                 from deep_translator import GoogleTranslator
 
-                events_text = [GoogleTranslator(source="vi", target="en").translate(e) for e in events]
+                # Chỉ dịch event có mô tả hình; event rỗng (chỉ OCR/ASR) giữ nguyên "".
+                events_text = [
+                    GoogleTranslator(source="vi", target="en").translate(e) if e.strip() else e
+                    for e in events
+                ]
             except Exception as e:  # thiếu package / mạng lỗi -> dùng nguyên văn, không làm hỏng search
                 current_app.logger.warning("TRAKE translate thất bại, dùng text gốc: %s", e)
                 events_text = events

@@ -54,6 +54,8 @@ class Config:
     TRAKE_TOP_M = int(os.getenv("TRAKE_TOP_M", "150"))
     TRAKE_TOP_VIDEOS = int(os.getenv("TRAKE_TOP_VIDEOS", "2"))
     TRAKE_MAX_COMBOS = int(os.getenv("TRAKE_MAX_COMBOS", "100"))
+    # Trần cứng cho số tổ hợp hiển thị (để xem nhiều trường hợp hơn khi khám phá).
+    TRAKE_MAX_COMBOS_HARD = int(os.getenv("TRAKE_MAX_COMBOS_HARD", "500"))
     TRAKE_TIER3_RADIUS = int(os.getenv("TRAKE_TIER3_RADIUS", "15"))
     TRAKE_TIER3_STRIDE = int(os.getenv("TRAKE_TIER3_STRIDE", "1"))
     TRAKE_VIDEO_CONFIDENCE_THRESHOLD = float(

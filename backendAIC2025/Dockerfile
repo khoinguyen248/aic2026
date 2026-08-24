@@ -31,13 +31,18 @@ CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "
 
 FROM base AS search
 
+# CPU mặc định; build GPU: --build-arg TORCH_INDEX=.../cu121 --build-arg GPU_EXTRAS="accelerate bitsandbytes"
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
+ARG GPU_EXTRAS=
+
 COPY requirements-search.txt .
 RUN pip install \
         torch==2.6.0 \
         torchvision==0.21.0 \
-        --index-url https://download.pytorch.org/whl/cpu \
+        --index-url ${TORCH_INDEX} \
     && pip install -r requirements-search.txt \
-    && pip install --no-deps torchscale==0.2.0
+    && pip install --no-deps torchscale==0.2.0 \
+    && if [ -n "${GPU_EXTRAS}" ]; then pip install ${GPU_EXTRAS}; fi
 
 COPY . .
 
