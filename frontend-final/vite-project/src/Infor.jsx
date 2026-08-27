@@ -6,25 +6,37 @@ import { CiLink } from "react-icons/ci";
 
 
 const Infor = ({ setModalFlag, selectedFrame }) => {
-  const idChecked = selectedFrame.idx
+  const idChecked = selectedFrame?.idx
 
   // Lấy 10 trước và 10 sau
 
 
 const [frames, setFrames] = useState([])
+const [error, setError] = useState('')
 
 useEffect(() => {
+  if (selectedFrame?.idx === undefined || selectedFrame?.idx === null) {
+    setFrames([])
+    return
+  }
+
+  let cancelled = false
   const fetchInfo = async () => {
-    console.log(selectedFrame)
-
-    const response = await searchinfo(selectedFrame)
-    const results = response.data.results
-
-    console.log(results)
-    setFrames(results)
+    try {
+      setError('')
+      const response = await searchinfo(selectedFrame)
+      if (!cancelled) setFrames(response.data.results || [])
+    } catch (requestError) {
+      console.error('Unable to load neighbouring frames:', requestError)
+      if (!cancelled) {
+        setFrames([])
+        setError(requestError.response?.data?.error || 'Không thể tải các frame lân cận.')
+      }
+    }
   }
 
   fetchInfo()
+  return () => { cancelled = true }
 }, [selectedFrame])
   return (
     <div className="overlay">
@@ -44,6 +56,7 @@ useEffect(() => {
             marginTop: "20px"
           }}
         >
+          {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
           {frames.map((f, i) => {
             let pathVal = f.path || "";
             const imageUrl = pathVal.startsWith("http")

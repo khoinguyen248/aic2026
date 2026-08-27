@@ -75,6 +75,17 @@ def create_app():
 
         app.register_blueprint(user_bp, url_prefix="/user")
 
+    # OCR/ASR chỉ cần MongoDB; không phụ thuộc vào Qdrant hay model visual.
+    if Config.MONGO_SEARCH_ENABLED:
+        from .routes.mongo_search_routes import mongo_search_bp
+
+        app.register_blueprint(mongo_search_bp, url_prefix="/search")
+
+    # Lấy ±N keyframe chỉ đọc metadata, không phụ thuộc Qdrant/FAISS/model.
+    from .routes.temporal_routes import temporal_bp
+
+    app.register_blueprint(temporal_bp, url_prefix="/search")
+
     if Config.SEARCH_ENABLED:
         # Main search / image search / health = Qdrant (teammate):
         #   /search/collection, /search/image, /search/health
@@ -82,10 +93,8 @@ def create_app():
 
         app.register_blueprint(qdrant_bp, url_prefix="/search")
 
-        # TRAKE + ASR + OCR + infoframes = code của bạn:
-        #   /search/trake, /search/frame, /search/asr, /search/ocr, /search/infoframes
-        # Guard: TRAKE/search_controller kéo theo stack FAISS/CLIP/beit3 — nếu thiếu dep thì
-        # chỉ tắt các route này, KHÔNG làm sập cả app.
+        # TRAKE + frame/infoframes chạy trên Qdrant. OCR/ASR đã được đăng ký độc lập ở trên.
+        # Guard: nếu thiếu dependency search thì không làm sập cả app.
         try:
             from .routes.search_routes import search_bp
 
