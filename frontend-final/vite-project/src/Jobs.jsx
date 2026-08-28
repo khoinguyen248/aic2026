@@ -176,9 +176,9 @@ function Jobs() {
             setModalFlag(true);
             setSelectedFrame({
               idx: item.idx,
-              L: item.L,
-              V: item.V,
-
+              // L/V đã derive từ video_id ở trên: kết quả OCR không trả về L/V riêng.
+              L: L,
+              V: V,
             });
           }} />}
           {url && <FaCirclePlay onClick={() => {
