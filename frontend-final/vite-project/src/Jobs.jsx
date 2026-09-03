@@ -179,7 +179,7 @@ function Jobs() {
               idx: item.idx,
               L: item.L,
               V: item.V,
-
+              video_id: item.video_id,
             });
           }} />}
           {url && <FaCirclePlay onClick={() => {

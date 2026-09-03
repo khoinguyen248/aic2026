@@ -17,10 +17,11 @@ search_bp.add_url_rule("/ocr", view_func=ocr_search, methods=["POST"])
 search_bp.add_url_rule("/trake", view_func=trake_search, methods=["POST"])
 search_bp.add_url_rule("/frame", view_func=trake_frame, methods=["GET"])
 
-# /infoframes vẫn kéo theo search_controller (stack beit3 cũ) -> guard riêng để khỏi ảnh hưởng phần trên.
+# /infoframes: ±10 frame quanh 1 keyframe, đọc trực tiếp từ Qdrant (import nhẹ, không faiss/beit3).
 try:
-    from ..controllers.search_controller import temporal_frames
+    from ..controllers.infoframes_controller import frames_in_range, temporal_frames
 
     search_bp.add_url_rule("/infoframes", view_func=temporal_frames, methods=["POST"])
+    search_bp.add_url_rule("/framerange", view_func=frames_in_range, methods=["POST"])
 except Exception as _exc:  # noqa: BLE001
     logging.getLogger(__name__).warning("/search/infoframes disabled: %s", _exc)

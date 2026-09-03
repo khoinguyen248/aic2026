@@ -6,12 +6,13 @@ import { CiLink } from "react-icons/ci";
 
 
 const Infor = ({ setModalFlag, selectedFrame }) => {
-  const idChecked = selectedFrame.idx
-
   // Lấy 10 trước và 10 sau
 
 
 const [frames, setFrames] = useState([])
+// idx của frame gốc để tô viền đỏ. Ưu tiên target_idx server trả về
+// (case TRAKE gửi frame_id, không có idx); fallback về idx đã chọn.
+const [targetIdx, setTargetIdx] = useState(selectedFrame.idx)
 
 useEffect(() => {
   const fetchInfo = async () => {
@@ -22,6 +23,7 @@ useEffect(() => {
 
     console.log(results)
     setFrames(results)
+    setTargetIdx(response.data.target_idx ?? selectedFrame.idx)
   }
 
   fetchInfo()
@@ -62,7 +64,7 @@ style={{
         width: "180px",
         height: "100px",
         objectFit: "cover",
-                     border: Number(f.idx) === Number(idChecked) ? "3px solid red" : "none"
+                     border: Number(f.idx) === Number(targetIdx) ? "3px solid red" : "none"
 
       }}                
               />

@@ -24,6 +24,7 @@ export const searchImage = (data) => API.post('/search/image', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
 })
 export const searchinfo = (data3) => API.post('/search/infoframes', data3)
+export const framesInRange = (data) => API.post('/search/framerange', data)
 export const trakeSearch = (data) => API.post('/search/trake', data)
 export const asrSearch = (data) => API.post('/search/asr', data)
 export const ocrSearch = (data) => API.post('/search/ocr', data)
