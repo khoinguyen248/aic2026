@@ -20,6 +20,24 @@ import TrakePanel from './TrakePanel.jsx';
 import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
 
+const locationFromResult = (item) => {
+  const source = typeof item === 'object' && item ? item : {};
+  const candidate = [source.video_id, source.path, source.url]
+    .filter(Boolean)
+    .join(' ');
+  const matched = candidate.match(/(?:[KL])?(\d+)_V(\d+)/i);
+  const l = source.L ?? matched?.[1] ?? '';
+  const v = source.V ?? matched?.[2] ?? '';
+
+  return {
+    L: String(l).replace(/^[KL]/i, ''),
+    V: String(v).replace(/^V/i, ''),
+  };
+};
+
+const compareCodes = (left, right) =>
+  Number(left) - Number(right) || String(left).localeCompare(String(right));
+
 function Jobs() {
   const [drawerOpen, setDrawerOpen] = useState(true); // mở mặc định
   const openDrawer = () => setDrawerOpen(true);
@@ -46,6 +64,8 @@ function Jobs() {
   const [fuzzyLevel, setFuzzyLevel] = useState(1)
   const [topk, setTopk] = useState(100)
   const [retrival, setRetrival] = useState([]) // array of objects {path, L, V, frame_id, ...}
+  const [filterL, setFilterL] = useState(undefined)
+  const [filterV, setFilterV] = useState(undefined)
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState("")
   const [imageSearching, setImageSearching] = useState(false)
@@ -79,6 +99,7 @@ function Jobs() {
   const runOcrSearch = async () => {
     if (!ocrQuery.trim()) { setOcrError("Enter on-screen text to search"); return }
     setOcrError(""); setOcrLoading(true)
+    setFilterL(undefined); setFilterV(undefined); setPage(1)
     // xoá kết quả ASR standalone để bảng frame OCR hiện ra
     setAsrResults([]); setAsrError("")
     try {
@@ -90,10 +111,22 @@ function Jobs() {
     } finally { setOcrLoading(false) }
   }
 
-  // normalize retrieval into rows of 5
+  const availableLs = [...new Set(retrival.map(locationFromResult).map(({ L }) => L).filter(Boolean))]
+    .sort(compareCodes);
+  const availableVs = [...new Set(retrival
+    .map(locationFromResult)
+    .filter(({ L, V }) => V && (!filterL || L === filterL))
+    .map(({ V }) => V))]
+    .sort(compareCodes);
+  const filteredRetrival = retrival.filter((item) => {
+    const { L, V } = locationFromResult(item);
+    return (!filterL || L === filterL) && (!filterV || V === filterV);
+  });
+
+  // normalize the filtered retrieval into rows of 5
   const rows = [];
-  for (let i = 0; i < retrival.length; i += 5) {
-    rows.push(retrival.slice(i, i + 5));
+  for (let i = 0; i < filteredRetrival.length; i += 5) {
+    rows.push(filteredRetrival.slice(i, i + 5));
   }
 
   // columns dynamic: 5 columns
@@ -173,27 +206,41 @@ function Jobs() {
               {metadataText}
             </div>
           )}
-          {pathVal && <FaFolderOpen onClick={() => {
-            setModalFlag(true);
-            setSelectedFrame({
-              idx: item.idx,
-              L: item.L,
-              V: item.V,
-
-            });
-          }} />}
-          {url && <FaCirclePlay onClick={() => {
-            let newUrl = `${url}&t=${time}s`; // Bỏ chữ 's'
-
-
-            setVidFlag(newUrl);
-            console.log("Setting vidFlag:", newUrl);
-            setYtflag(true);
-          }} />}
-          <IoIosAddCircle onClick={() => {
-            setAnsflag(true)
-            setInf(infor)
-          }} />
+          <div className="result-action-buttons">
+            {pathVal && <Button
+              className="result-action-button"
+              size="large"
+              icon={<FaFolderOpen />}
+              title="Xem các frame lân cận"
+              aria-label="Xem các frame lân cận"
+              onClick={() => {
+                setModalFlag(true);
+                setSelectedFrame({ idx: item.idx, L: item.L, V: item.V });
+              }}
+            />}
+            {url && <Button
+              className="result-action-button"
+              size="large"
+              icon={<FaCirclePlay />}
+              title="Mở video tại thời điểm này"
+              aria-label="Mở video tại thời điểm này"
+              onClick={() => {
+                setVidFlag(`${url}&t=${time}s`);
+                setYtflag(true);
+              }}
+            />}
+            <Button
+              className="result-action-button"
+              size="large"
+              icon={<IoIosAddCircle />}
+              title="Chọn kết quả để trả lời"
+              aria-label="Chọn kết quả để trả lời"
+              onClick={() => {
+                setAnsflag(true)
+                setInf(infor)
+              }}
+            />
+          </div>
 
 
 
@@ -273,6 +320,9 @@ function Jobs() {
       }).filter(Boolean);
 
       console.log("Normalized result count:", normalized.length, normalized.slice(0, 3));
+      setFilterL(undefined);
+      setFilterV(undefined);
+      setPage(1);
       setRetrival(normalized);
       return normalized;
     } catch (err) {
@@ -615,20 +665,56 @@ function Jobs() {
             ) : asrActive ? (
               <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
             ) : retrival.length > 0 ? (
-              <Table
-                style={{ width: '100%', margin: '0', background: '#fff' }}
-                dataSource={dataSource}
-                columns={columns}
-                pagination={{
-                  current: page,
-                  pageSize: pageSize,
-                  showSizeChanger: true,
-                  onChange: (page, pageSize) => {
-                    setPage(page);
-                    setPageSize(pageSize);
-                  },
-                }}
-              />
+              <>
+                <div className="result-filter-bar">
+                  <span className="result-filter-count">
+                    Hiển thị {filteredRetrival.length}/{retrival.length} kết quả
+                  </span>
+                  <Select
+                    allowClear
+                    className="result-filter-select"
+                    placeholder="Lọc bộ L"
+                    value={filterL}
+                    onChange={(value) => {
+                      setFilterL(value);
+                      setFilterV(undefined);
+                      setPage(1);
+                    }}
+                  >
+                    {availableLs.map((value) => (
+                      <Option key={value} value={value}>
+                        {Number(value) <= 20 ? 'K' : 'L'}{value}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Select
+                    allowClear
+                    className="result-filter-select"
+                    placeholder="Lọc video V"
+                    value={filterV}
+                    onChange={(value) => { setFilterV(value); setPage(1); }}
+                  >
+                    {availableVs.map((value) => (
+                      <Option key={value} value={value}>V{value}</Option>
+                    ))}
+                  </Select>
+                </div>
+                <Table
+                  style={{ width: '100%', margin: '0', background: '#fff' }}
+                  dataSource={dataSource}
+                  columns={columns}
+                  locale={{ emptyText: 'Không có kết quả phù hợp với bộ lọc L/V.' }}
+                  pagination={{
+                    current: page,
+                    pageSize: pageSize,
+                    showSizeChanger: true,
+                    onChange: (page, pageSize) => {
+                      setPage(page);
+                      setPageSize(pageSize);
+                    },
+                  }}
+                />
+              </>
             ) : (
               <div
                 style={{
