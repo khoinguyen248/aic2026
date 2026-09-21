@@ -198,7 +198,7 @@ function Jobs() {
             </div>
           )}
           <div>
-            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s ${fps}`}
+            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
             {url && <a href={`${url}&t=${time}s`} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
           </div>
           {metadataText && (
@@ -320,6 +320,9 @@ function Jobs() {
       }).filter(Boolean);
 
       console.log("Normalized result count:", normalized.length, normalized.slice(0, 3));
+      // Bất kỳ search nào đổ vào bảng frame chính -> tắt panel ASR standalone để quay lại được semantic/OCR
+      setAsrResults([]);
+      setAsrError("");
       setFilterL(undefined);
       setFilterV(undefined);
       setPage(1);
@@ -327,6 +330,8 @@ function Jobs() {
       return normalized;
     } catch (err) {
       console.error("Search failed:", err?.response?.data ?? err.message ?? err);
+      setAsrResults([]);
+      setAsrError("");
       setRetrival([]);
       return [];
     }

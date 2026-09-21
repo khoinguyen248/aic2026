@@ -40,7 +40,9 @@ function FrameCell({ L, V, frameId, fps, videoUrl, eventIdx, path }) {
           <a href={yt} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }}><CiLink /></a>
         )}
       </div>
-      <div style={{ fontSize: 12, color: '#aaa' }}>{fmtTime(frameId, fps)}</div>
+      <div style={{ fontSize: 12, color: '#aaa' }}>
+        {fmtTime(frameId, fps)}{fps != null ? ` · fps ${fps}` : ''}
+      </div>
     </div>
   )
 }
