@@ -27,5 +27,14 @@
 }
 
 .result-filter-select {
-  min-width: 150px;
+  min-width: 210px;
+}
+
+.result-exclude-select {
+  min-width: 260px;
+}
+
+.result-filter-hint {
+  color: #64748b;
+  font-size: 12px;
 }
