@@ -6,6 +6,8 @@ import { CiLink } from "react-icons/ci";
 
 
 const Infor = ({ setModalFlag, selectedFrame }) => {
+  const idChecked = selectedFrame.idx
+
   // Lấy 10 trước và 10 sau
 
 
