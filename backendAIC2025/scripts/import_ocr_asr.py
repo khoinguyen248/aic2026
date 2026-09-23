@@ -90,6 +90,7 @@ def main():
     db["asr_metadata"].create_index("video_id")
 
     ensure_search_index(db["ocr_metadata"], "ocr_text", "ocr_search")
+    ensure_search_index(db["ocr_metadata"], "caption", "caption_search")
     ensure_search_index(db["asr_metadata"], "text", "asr_search")
 
     print("XONG. Kiểm tra:")

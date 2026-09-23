@@ -1,0 +1,27 @@
+services:
+  mongodb:
+    image: mongodb/mongodb-atlas-local:preview
+    container_name: aic2026-mongodb
+    hostname: mongodb
+
+    environment:
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - mongodb_mongot:/data/mongot
+
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+    name: aic2026_mongodb_data
+  mongodb_config:
+    name: aic2026_mongodb_config
+  mongodb_mongot:
+    name: aic2026_mongodb_mongot

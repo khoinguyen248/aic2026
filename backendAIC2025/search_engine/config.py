@@ -69,6 +69,12 @@ class SearchConfig:
                     vector_size=1280,
                     embedding_dir=self.embedding_root / "pe",
                 ),
+                "caption": ModelConfig(
+                                    name="caption",
+                                    collection=os.getenv("QDRANT_COLLECTION_CAPTION", "caption"),
+                                    vector_size=1024,
+                                    embedding_dir=self.embedding_root / "caption",
+                                ),
             },
         )
 

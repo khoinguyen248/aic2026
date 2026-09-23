@@ -218,11 +218,14 @@ class ModelRegistry:
                 self.config.jina_model_name,
                 self.config,
             )
-        return OpenCLIPEncoder(
-            self.config.pe_model_name,
-            self.config.models[name].vector_size,
-            self.config,
-        )
+        if name == "pe":
+            return OpenCLIPEncoder(
+                        self.config.pe_model_name,
+                        self.config.models[name].vector_size,
+                        self.config,
+                    )
+        if name == "caption":
+            return BEIT3Encoder(self.config)
 
     def _evict_if_needed(self) -> None:
         while len(self._encoders) >= self.config.model_cache_size:

@@ -7,7 +7,7 @@ from flask import current_app, jsonify, request
 
 _engine = None
 _engine_lock = threading.Lock()
-_allowed_models = {"beit3", "jina", "pe"}
+_allowed_models = {"beit3", "jina", "pe", "caption"}
 
 
 def _get_engine():
@@ -30,7 +30,7 @@ def _model_from_request(value: object) -> str:
     if model == "clip":
         model = "pe"
     if model not in _allowed_models:
-        raise ValueError("model must be one of: beit3, jina, pe")
+        raise ValueError("model must be one of: beit3, jina, pe, caption")
     return model
 
 

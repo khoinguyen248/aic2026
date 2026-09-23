@@ -9,6 +9,11 @@ ENV PYTHONPATH=/app
 COPY requirements-core.txt .
 RUN python -m pip install --upgrade pip \
     && pip install -r requirements-core.txt
+RUN pip install \
+        torch==2.6.0 \
+        torchvision==0.21.0 \
+        --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-deps torchscale==0.2.0 
 
 
 FROM base AS test
@@ -36,13 +41,6 @@ ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 ARG GPU_EXTRAS=
 
 COPY requirements-search.txt .
-RUN pip install \
-        torch==2.6.0 \
-        torchvision==0.21.0 \
-        --index-url ${TORCH_INDEX} \
-    && pip install -r requirements-search.txt \
-    && pip install --no-deps torchscale==0.2.0 \
-    && if [ -n "${GPU_EXTRAS}" ]; then pip install ${GPU_EXTRAS}; fi
 
 COPY . .
 

@@ -6,7 +6,7 @@ import { FaCirclePlay } from "react-icons/fa6";
 import { IoIosAddCircle } from "react-icons/io";
 
 import './App.css'
-import { search, searchImage, searchOcr, searchAsr, asrSearch, ocrSearch } from './api';
+import { search, searchImage, searchOcr, searchAsr, searchCaption, asrSearch, ocrSearch, captionSearch } from './api';
 import { Option } from 'antd/es/mentions';
 import { InboxOutlined, MenuOutlined } from "@ant-design/icons";
 import { CiLink } from "react-icons/ci";
@@ -61,7 +61,7 @@ function Jobs() {
     if (!asrQuery.trim()) { setAsrError("Enter spoken content to search"); return }
     setAsrError(""); setAsrLoading(true); setAsrResults([])
     try {
-      const resp = await asrSearch({ query: asrQuery, k: 50 })
+      const resp = await asrSearch({ query: asrQuery, k: topk })
       if (resp.data?.ok) setAsrResults(resp.data.results || [])
       else setAsrError(resp.data?.error || "ASR search failed")
     } catch (err) {
@@ -76,18 +76,35 @@ function Jobs() {
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrError, setOcrError] = useState("")
 
+  const [captionQuery, setCaptionQuery] = useState("")
+  const [captionLoading, setCaptionLoading] = useState(false)
+  const [captionError, setCaptionError] = useState("")
+
   const runOcrSearch = async () => {
     if (!ocrQuery.trim()) { setOcrError("Enter on-screen text to search"); return }
     setOcrError(""); setOcrLoading(true)
     // xoá kết quả ASR standalone để bảng frame OCR hiện ra
     setAsrResults([]); setAsrError("")
     try {
-      const resp = await ocrSearch({ query: ocrQuery, k: 100 })
+      const resp = await ocrSearch({ query: ocrQuery, k: topk })
       if (resp.data?.ok) setRetrival((resp.data.results || []).filter(Boolean))
       else { setOcrError(resp.data?.error || "OCR search failed"); setRetrival([]) }
     } catch (err) {
       setOcrError(err?.response?.data?.error || err.message || "Backend connection error"); setRetrival([])
     } finally { setOcrLoading(false) }
+  }
+
+  const runCaptionSearch = async () => {
+    if (!captionQuery.trim()) { setCaptionError("Enter keyframe caption to search"); return }
+    setCaptionError(""); setCaptionLoading(true)
+    setAsrResults([]); setAsrError("")
+    try {
+      const resp = await captionSearch({ query: captionQuery, k: topk })
+      if (resp.data?.ok) setRetrival((resp.data.results || []).filter(Boolean))
+      else { setCaptionError(resp.data?.error || "Caption search failed"); setRetrival([]) }
+    } catch (err) {
+      setCaptionError(err?.response?.data?.error || err.message || "Backend connection error"); setRetrival([])
+    } finally { setCaptionLoading(false) }
   }
 
   // normalize retrieval into rows of 5
@@ -137,7 +154,7 @@ function Jobs() {
       const time = Number.isFinite(Number(rawTime)) ? Number(rawTime) : 0;
       const mstime = Math.floor(time * 1000)
       const fps = !isString && item ? (item.fps ?? "") : "";
-      const metadataText = !isString && item ? (item.ocr_text || item.text || "") : "";
+      const metadataText = !isString && item ? (item.caption || item.ocr_text || item.text || "") : "";
       let minute = Math.floor(time / 60)
       let sec = Math.floor(time - 60 * minute)
       const infor = {
@@ -220,9 +237,11 @@ function Jobs() {
         ? searchOcr
         : mode === "asr"
           ? searchAsr
-          : mode === "image"
-            ? searchImage
-            : search;
+          : mode === "caption"
+            ? searchCaption
+            : mode === "image"
+              ? searchImage
+              : search;
       const resp = await requestSearch(payload);
 
       // normalize possible response locations
@@ -287,7 +306,7 @@ function Jobs() {
     // ensure topk is a number
     const kNum = Number(topk) || 100;
 
-    if (searchMode === "ocr" || searchMode === "asr") {
+    if (searchMode === "ocr" || searchMode === "asr" || searchMode === "caption") {
       const metadataQuery = (screen1 || "").trim();
       if (!metadataQuery) {
         setRetrival([]);
@@ -296,6 +315,7 @@ function Jobs() {
 
       await doSearch({
         query: metadataQuery,
+        k: kNum,
         limit: kNum,
         fuzzy_level: fuzzyLevel,
       }, searchMode);
@@ -432,6 +452,11 @@ function Jobs() {
                 value={asrQuery}
                 autoSize={{ minRows: 2, maxRows: 4 }}
                 onChange={(e) => setAsrQuery(e.target.value)}
+                onPressEnter={(e) => {
+                  if (asrMode !== "standalone" || e.shiftKey) return;
+                  e.preventDefault();
+                  runAsrSearch();
+                }}
               />
               {asrMode === "standalone" ? (
                 <Button type="primary" loading={asrLoading} onClick={runAsrSearch}>
@@ -467,6 +492,22 @@ function Jobs() {
                 </div>
               )}
               {ocrError && <div style={{ color: "#d4380d", fontSize: 12 }}>{ocrError}</div>}
+            </div>
+
+            {/* Caption search - keyframe description */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontWeight: 600 }}>Caption search - keyframe description</div>
+              <Input.TextArea
+                placeholder="e.g. a man standing beside a red car"
+                value={captionQuery}
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                onChange={(e) => setCaptionQuery(e.target.value)}
+                onPressEnter={runCaptionSearch}
+              />
+              <Button type="primary" loading={captionLoading} onClick={runCaptionSearch}>
+                Caption Search
+              </Button>
+              {captionError && <div style={{ color: "#d4380d", fontSize: 12 }}>{captionError}</div>}
             </div>
 
             <div style={{ borderTop: '1px solid #eee', margin: '6px 0' }} />
@@ -583,12 +624,24 @@ function Jobs() {
 
             <Select
               style={{ width: '130px' }}
+              value={searchMode}
+              onChange={(value) => setSearchMode(value)}
+            >
+              <Option value="visual">VISUAL</Option>
+              <Option value="ocr">OCR</Option>
+              <Option value="asr">ASR</Option>
+              <Option value="caption">CAPTION</Option>
+            </Select>
+
+            <Select
+              style={{ width: '130px' }}
               value={model}
               onChange={(value) => setModel(value)}
             >
               <Option value="beit3">BEIT3</Option>
               <Option value="jina">JINA</Option>
               <Option value="pe">PE</Option>
+              <Option value="caption">CAPTION</Option>
             </Select>
 
 

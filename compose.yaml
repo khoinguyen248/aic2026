@@ -11,7 +11,7 @@ services:
         GPU_EXTRAS: "${GPU_EXTRAS:-}"
 
     # GPU cho Qwen (chỉ có tác dụng khi Docker Desktop bật GPU; search vẫn chạy CPU).
-    gpus: all
+    # gpus: all
 
     restart: unless-stopped
 
@@ -34,7 +34,7 @@ services:
 
       # Semantic search/Qdrant chỉ bật khi dữ liệu và API đã được kiểm tra xong
       SEARCH_ENABLED: "${SEARCH_ENABLED:-false}"
-      BEIT3_CHECKPOINT_PATH: "${BEIT3_CHECKPOINT_PATH:-/models/beit3_large_itc_patch16_224.pth}"
+      BEIT3_CHECKPOINT_PATH: "${BEIT3_CHECKPOINT_PATH:-/models/beit3_large_patch16_224.pth}"
       EMBEDDING_ROOT: "${EMBEDDING_ROOT:-/data/embeddings}"
       METADATA_ROOT: "${METADATA_ROOT:-/data/metadata}"
       KEYFRAMES_PATH: "${KEYFRAMES_PATH:-/data/keyframes}"

@@ -25,8 +25,8 @@ PAYLOAD_KEYS = (
 
 def normalize_model_name(model: str) -> str:
     name = (model or "").strip().lower()
-    if name not in {"beit3", "jina", "pe"}:
-        raise ValueError(f"Unsupported model '{model}'. Expected one of: beit3, jina, pe")
+    if name not in {"beit3", "jina", "pe", "caption"}:
+        raise ValueError(f"Unsupported model '{model}'. Expected one of: beit3, jina, pe, caption")
     return name
 
 

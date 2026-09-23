@@ -6,7 +6,7 @@ from flask import request, jsonify, current_app, send_file
 
 from ..services import trake_service
 
-_ALLOWED_MODELS = {"beit3", "jina", "pe"}
+_ALLOWED_MODELS = {"beit3", "jina", "pe", "caption"}
 
 
 def _get_engine():
@@ -21,7 +21,7 @@ def _model_from_request(value):
     if model == "clip":
         model = "pe"
     if model not in _ALLOWED_MODELS:
-        raise ValueError("model must be one of: beit3, jina, pe")
+        raise ValueError("model must be one of: beit3, jina, pe, caption")
     return model
 
 

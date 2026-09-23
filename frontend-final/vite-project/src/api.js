@@ -20,6 +20,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 export const search = (data2) => API.post('/search/collection', data2)
 export const searchOcr = (data) => API.post('/search/ocr', data)
 export const searchAsr = (data) => API.post('/search/asr', data)
+export const searchCaption = (data) => API.post('/search/caption', data)
 export const searchImage = (data) => API.post('/search/image', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
 })
@@ -28,6 +29,7 @@ export const framesInRange = (data) => API.post('/search/framerange', data)
 export const trakeSearch = (data) => API.post('/search/trake', data)
 export const asrSearch = (data) => API.post('/search/asr', data)
 export const ocrSearch = (data) => API.post('/search/ocr', data)
+export const captionSearch = (data) => API.post('/search/caption', data)
 // URL ảnh 1 frame gốc để verify (decode từ video ở backend; lỗi/404 nếu máy không có video)
 export const frameUrl = (L, V, frameId) =>
     `${API_BASE}/search/frame?L=${encodeURIComponent(L)}&V=${encodeURIComponent(V)}&frame_id=${frameId}`

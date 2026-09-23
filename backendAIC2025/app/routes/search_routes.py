@@ -4,6 +4,7 @@ from flask import Blueprint
 
 # ASR/OCR (code của bạn) đọc Mongo teammate — import NHẸ (chỉ pymongo), luôn đăng ký được.
 from ..controllers.asr_controller import asr_search
+from ..controllers.caption_controller import caption_search
 from ..controllers.ocr_controller import ocr_search
 
 # TRAKE giờ chạy trên Qdrant (SearchEngine của teammate), KHÔNG kéo theo FAISS/beit3 -> import nhẹ.
@@ -13,6 +14,7 @@ from ..controllers.trake_controller import trake_search, trake_frame
 search_bp = Blueprint("search", __name__)
 
 search_bp.add_url_rule("/asr", view_func=asr_search, methods=["POST"])
+search_bp.add_url_rule("/caption", view_func=caption_search, methods=["POST"])
 search_bp.add_url_rule("/ocr", view_func=ocr_search, methods=["POST"])
 search_bp.add_url_rule("/trake", view_func=trake_search, methods=["POST"])
 search_bp.add_url_rule("/frame", view_func=trake_frame, methods=["GET"])
