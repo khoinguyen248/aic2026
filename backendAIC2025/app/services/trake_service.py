@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
 
+# Khoảng cách tối đa giữa 2 event LIÊN TIẾP: 10 giây (~300 frame @30fps, ~250 frame @25fps).
+_MAX_EVENT_GAP_SECONDS = 10.0
+
+
+def _max_event_gap_frames(fps):
+    """Số frame tối đa cho phép giữa 2 event liên tiếp, suy từ fps của video (None nếu fps không hợp lệ)."""
+    try:
+        f = float(fps)
+    except (TypeError, ValueError):
+        return None
+    return round(f * _MAX_EVENT_GAP_SECONDS) if f > 0 else None
+
 _qwen_model = None
 _qwen_processor = None
 _qwen_lock = threading.Lock()
@@ -632,7 +644,8 @@ def nms_candidates(candidates, min_gap=15):
     return kept
 
 
-def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15):
+def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15, max_gap=None):
+    """max_gap: khoảng cách frame tối đa giữa 2 event liên tiếp (None = không giới hạn)."""
     cleaned = []
     for cands in candidates_per_event:
         cands_sorted = nms_candidates(sorted(cands, key=lambda c: -c[1]), min_gap=min_gap)
@@ -644,7 +657,12 @@ def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15
     weighted = []
     for combo in product(*cleaned):
         fids = [c[0] for c in combo]
-        if all(fids[i] < fids[i + 1] for i in range(len(fids) - 1)):
+        # Bắt buộc tăng dần theo thời gian, VÀ mỗi bước không vượt max_gap frame.
+        ok_order = all(fids[i] < fids[i + 1] for i in range(len(fids) - 1))
+        ok_gap = max_gap is None or all(
+            fids[i + 1] - fids[i] <= max_gap for i in range(len(fids) - 1)
+        )
+        if ok_order and ok_gap:
             weighted.append((fids, prod(p for _, p in combo)))
     weighted.sort(key=lambda x: -x[1])
     return [c[0] for c in weighted[:max_combos]]
@@ -838,7 +856,11 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
 
         qwen_used_total += qwen_used
 
-        combos = build_cartesian_submissions(candidates_per_event, max_combos=slot_count)
+        combos = build_cartesian_submissions(
+            candidates_per_event,
+            max_combos=slot_count,
+            max_gap=_max_event_gap_frames(video.get("fps")),
+        )
         per_video.append(
             {
                 "video_id": vid,
