@@ -1,6 +1,6 @@
 // TrakePanel.jsx — enter N events -> /search/trake -> combo list -> click to verify frames
 import { useState } from 'react'
-import { Input, Button, Spin, Tag } from 'antd'
+import { Input, InputNumber, Button, Spin, Tag } from 'antd'
 import { IoIosAddCircle } from 'react-icons/io'
 import { CiLink } from 'react-icons/ci'
 import { trakeSearch, frameUrl } from './api'
@@ -40,7 +40,9 @@ function FrameCell({ L, V, frameId, fps, videoUrl, eventIdx, path }) {
           <a href={yt} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }}><CiLink /></a>
         )}
       </div>
-      <div style={{ fontSize: 12, color: '#aaa' }}>{fmtTime(frameId, fps)}</div>
+      <div style={{ fontSize: 12, color: '#aaa' }}>
+        {fmtTime(frameId, fps)}{fps != null ? ` · fps ${fps}` : ''}
+      </div>
     </div>
   )
 }
@@ -52,6 +54,8 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
   const [openKey, setOpenKey] = useState(null) // `${vi}-${ci}`
+  const [maxCombos, setMaxCombos] = useState(100) // số tổ hợp hiển thị (trần 500)
+  const [topVideos, setTopVideos] = useState(2)   // số video xét ở tầng 1 (nhiều -> nhiều L hơn)
 
   const setField = (i, field, val) =>
     setEvents(prev => prev.map((e, idx) => (idx === i ? { ...e, [field]: val } : e)))
@@ -59,9 +63,13 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
   const removeEvent = (i) => setEvents(prev => (prev.length <= 2 ? prev : prev.filter((_, idx) => idx !== i)))
 
   const runSearch = async () => {
-    const picked = events.filter(e => e.q.trim())
-    if (picked.length < 2) { setError('Need at least 2 events (in chronological order)'); return }
-    const payload = { events: picked.map(e => e.q.trim()), language, model }
+    // Event "hợp lệ" = có mô tả hình HOẶC OCR HOẶC ASR (không bắt buộc mô tả hình).
+    const picked = events.filter(e => e.q.trim() || (e.ocr || '').trim() || (e.asr || '').trim())
+    if (picked.length < 2) { setError('Need ≥2 events (each event: visual description OR OCR OR ASR)'); return }
+    const payload = {
+      events: picked.map(e => e.q.trim()), language, model,
+      max_combos: maxCombos, top_videos: topVideos,
+    }
     // OCR/ASR đi song song với events đã lọc (map theo event). Chỉ gửi khi có ít nhất 1 ô.
     const ocr = picked.map(e => (e.ocr || '').trim())
     const asr = picked.map(e => (e.asr || '').trim())
@@ -90,7 +98,7 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
             <span style={{ width: 62, color: '#666', fontSize: 13 }}>Event {i + 1}</span>
             <Input
               value={ev.q}
-              placeholder={`describe moment ${i + 1} (hình ảnh)`}
+              placeholder={`visual description for moment ${i + 1} (optional if OCR/ASR given)`}
               onChange={(e) => setField(i, 'q', e.target.value)}
               onPressEnter={runSearch}
             />
@@ -101,7 +109,7 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
               size="small"
               addonBefore="OCR"
               value={ev.ocr}
-              placeholder="chữ trên màn hình (tùy chọn)"
+              placeholder="on-screen text (optional)"
               onChange={(e) => setField(i, 'ocr', e.target.value)}
               onPressEnter={runSearch}
             />
@@ -109,7 +117,7 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
               size="small"
               addonBefore="ASR"
               value={ev.asr}
-              placeholder="lời nói trong đoạn (tùy chọn)"
+              placeholder="spoken words in segment (optional)"
               onChange={(e) => setField(i, 'asr', e.target.value)}
               onPressEnter={runSearch}
             />
@@ -117,9 +125,16 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
         </div>
       ))}
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button icon={<IoIosAddCircle />} onClick={addEvent}>Add event</Button>
         <Button type="primary" loading={loading} onClick={runSearch}>TRAKE search</Button>
+        <span style={{ fontSize: 12, color: '#666', marginLeft: 8 }}>combos</span>
+        <InputNumber size="small" min={1} max={500} step={50} value={maxCombos}
+          onChange={(v) => setMaxCombos(v || 100)} style={{ width: 80 }} />
+        <span style={{ fontSize: 12, color: '#666' }}>videos</span>
+        <InputNumber size="small" min={1} max={20} value={topVideos}
+          onChange={(v) => setTopVideos(v || 2)} style={{ width: 64 }} />
+        <span style={{ fontSize: 11, color: '#aaa' }}>(more videos = more variety)</span>
       </div>
 
       {error && <div style={{ color: '#d4380d', marginTop: 12 }}>{error}</div>}

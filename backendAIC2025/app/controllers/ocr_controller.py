@@ -19,6 +19,7 @@ _OCR_PROJECT = {
     "frame_id": 1,
     "keyframe_order": 1,
     "frame_stamp": 1,
+    "fps": 1,
     "ocr_text": 1,
     "path": 1,
     "video_path": 1,
