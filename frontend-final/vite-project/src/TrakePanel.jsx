@@ -55,7 +55,7 @@ function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOp
   )
 }
 
-export default function TrakePanel({ language = false, model = 'beit3' }) {
+export default function TrakePanel({ language = false, model = 'beit3', onSubmitCombo }) {
   // Mỗi event: { q: mô tả hình ảnh, ocr: chữ trên màn hình, asr: lời nói } — ocr/asr tùy chọn.
   const [events, setEvents] = useState([{ q: '', ocr: '', asr: '' }, { q: '', ocr: '', asr: '' }])
   const [loading, setLoading] = useState(false)
@@ -188,6 +188,16 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
                       <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
                       <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
                       <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {combo.join(', ')}</span>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onSubmitCombo?.({ videoId: vid.video_id, frameIds: combo })
+                        }}
+                      >
+                        Nộp combo
+                      </Button>
                       <span style={{ marginLeft: 'auto', color: '#999' }}>{open ? '▾' : '▸'}</span>
                     </div>
                     {open && (

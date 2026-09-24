@@ -1,0 +1,66 @@
+.submission-modal-body,
+.submission-connection,
+.submission-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.submission-modal-body {
+  gap: 16px;
+  max-height: 68vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.submission-heading-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.submission-task-select {
+  display: block;
+  min-width: 230px;
+  margin-top: 6px;
+}
+
+.submission-grid-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.submission-frame-row {
+  margin-top: 2px;
+}
+
+.submission-json {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.submission-response {
+  padding-top: 2px;
+}
+
+@media (max-width: 640px) {
+  .submission-grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .submission-heading-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

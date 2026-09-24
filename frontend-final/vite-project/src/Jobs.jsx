@@ -919,12 +919,10 @@ import { CiLink } from "react-icons/ci";
 import Infor from './Infor';
 import { FaFolderOpen } from "react-icons/fa";
 import YoutubePlayer from './YoutubePlayer.jsx';
-import Ansbox from './Ansbox.jsx';
-import Ansbox1 from './Ansbox1.jsx';
-import Ansbox2 from './Ansbox2.jsx';
 import TrakePanel from './TrakePanel.jsx';
 import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
+import SubmissionModal from './SubmissionModal.jsx';
 
 const locationFromResult = (item) => {
   const source = typeof item === 'object' && item ? item : {};
@@ -1665,7 +1663,14 @@ function Jobs() {
           {/* Result area */}
           <div style={{ marginTop: 20 }}>
             {selectAns === "trake" ? (
-              <TrakePanel language={lang === true} model={model} />
+              <TrakePanel
+                language={lang === true}
+                model={model}
+                onSubmitCombo={({ videoId, frameIds }) => {
+                  setInf({ taskType: 'trake', video_id: videoId, frameIds })
+                  setAnsflag(true)
+                }}
+              />
             ) : asrActive ? (
               <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
             ) : retrival.length > 0 ? (
@@ -1783,10 +1788,12 @@ function Jobs() {
           close={setYtflag}
         />
       )}
-      {selectAns == "kis" && ansflag == true && (<Ansbox close={setAnsflag} inf={inf} />)}
-      {selectAns == "qa" && ansflag == true && (<Ansbox1 close={setAnsflag} inf={inf} />)}
-
-      {selectAns == "trake" && ansflag == true && (<Ansbox2 close={setAnsflag} inf={inf} />)}
+      <SubmissionModal
+        open={ansflag}
+        onClose={() => setAnsflag(false)}
+        draft={inf}
+        defaultTaskType={selectAns}
+      />
 
     </>
   )
