@@ -13,9 +13,7 @@ import { CiLink } from "react-icons/ci";
 import Infor from './Infor';
 import { FaFolderOpen } from "react-icons/fa";
 import YoutubePlayer from './YoutubePlayer.jsx';
-import Ansbox from './Ansbox.jsx';
-import Ansbox1 from './Ansbox1.jsx';
-import Ansbox2 from './Ansbox2.jsx';
+import SubmissionModal from './SubmissionModal.jsx';
 import TrakePanel from './TrakePanel.jsx';
 import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
@@ -54,7 +52,7 @@ function Jobs() {
   const [inf, setInf] = useState()
 
   const [selectedFrame, setSelectedFrame] = useState(null);
-  const [selectAns, setSelectAns] = useState("KIS")
+  const [selectAns, setSelectAns] = useState("kis")
   const [mondalFLag, setModalFlag] = useState(false)
   const [vidFlag, setVidFlag] = useState('')
   const [ytflag, setYtflag] = useState(false)
@@ -272,8 +270,8 @@ function Jobs() {
               title="Chọn kết quả để trả lời"
               aria-label="Chọn kết quả để trả lời"
               onClick={() => {
+                setInf({ ...infor, taskType: selectAns })
                 setAnsflag(true)
-                setInf(infor)
               }}
             />
           </div>
@@ -700,7 +698,14 @@ function Jobs() {
           {/* Result area */}
           <div style={{ marginTop: 20 }}>
             {selectAns === "trake" ? (
-              <TrakePanel language={lang === true} model={model} />
+              <TrakePanel
+                language={lang === true}
+                model={model}
+                onSubmitCombo={({ videoId, frameIds }) => {
+                  setInf({ video_id: videoId, frameIds, taskType: 'trake' })
+                  setAnsflag(true)
+                }}
+              />
             ) : asrActive ? (
               <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
             ) : retrival.length > 0 ? (
@@ -818,10 +823,12 @@ function Jobs() {
           close={setYtflag}
         />
       )}
-      {selectAns == "kis" && ansflag == true && (<Ansbox close={setAnsflag} inf={inf} />)}
-      {selectAns == "qa" && ansflag == true && (<Ansbox1 close={setAnsflag} inf={inf} />)}
-
-      {selectAns == "trake" && ansflag == true && (<Ansbox2 close={setAnsflag} inf={inf} />)}
+      <SubmissionModal
+        open={ansflag}
+        onClose={() => setAnsflag(false)}
+        draft={inf}
+        defaultTaskType={selectAns}
+      />
 
     </>
   )

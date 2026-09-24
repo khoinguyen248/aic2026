@@ -3,7 +3,9 @@ import { useState } from 'react'
 import { Input, InputNumber, Button, Spin, Tag } from 'antd'
 import { IoIosAddCircle } from 'react-icons/io'
 import { CiLink } from 'react-icons/ci'
+import { FaFolderOpen } from 'react-icons/fa'
 import { trakeSearch, frameUrl } from './api'
+import Infor from './Infor'
 
 const fmtTime = (frameId, fps) => {
   if (!fps || fps <= 0) return ''
@@ -14,7 +16,7 @@ const fmtTime = (frameId, fps) => {
 
 // One frame image cell.
 // Case 2: có path keyframe -> hiện ảnh keyframe (/frames/<path>). Case 1: decode frame gốc từ video.
-function FrameCell({ L, V, frameId, fps, videoUrl, eventIdx, path }) {
+function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOpenInfo }) {
   const [failed, setFailed] = useState(false)
   const t = fps ? Math.floor(frameId / fps) : null
   const yt = videoUrl ? `${videoUrl}${videoUrl.includes('?') ? '&' : '?'}t=${t}s` : null
@@ -34,11 +36,17 @@ function FrameCell({ L, V, frameId, fps, videoUrl, eventIdx, path }) {
         />
       )}
       <div style={{ fontSize: 12, color: '#888' }}>Event {eventIdx + 1}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
         frame {frameId}
         {yt && (
-          <a href={yt} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 6 }}><CiLink /></a>
+          <a href={yt} target="_blank" rel="noopener noreferrer"><CiLink /></a>
         )}
+        {/* Xem 10 frame trước + 10 frame sau của frame này */}
+        <FaFolderOpen
+          title="Xem ±10 frame"
+          style={{ cursor: 'pointer', color: '#1677ff' }}
+          onClick={() => onOpenInfo({ L, V, video_id: videoId, frame_id: frameId })}
+        />
       </div>
       <div style={{ fontSize: 12, color: '#aaa' }}>
         {fmtTime(frameId, fps)}{fps != null ? ` · fps ${fps}` : ''}
@@ -47,7 +55,7 @@ function FrameCell({ L, V, frameId, fps, videoUrl, eventIdx, path }) {
   )
 }
 
-export default function TrakePanel({ language = false, model = 'beit3' }) {
+export default function TrakePanel({ language = false, model = 'beit3', onSubmitCombo }) {
   // Mỗi event: { q: mô tả hình ảnh, ocr: chữ trên màn hình, asr: lời nói } — ocr/asr tùy chọn.
   const [events, setEvents] = useState([{ q: '', ocr: '', asr: '' }, { q: '', ocr: '', asr: '' }])
   const [loading, setLoading] = useState(false)
@@ -56,6 +64,7 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
   const [openKey, setOpenKey] = useState(null) // `${vi}-${ci}`
   const [maxCombos, setMaxCombos] = useState(100) // số tổ hợp hiển thị (trần 500)
   const [topVideos, setTopVideos] = useState(2)   // số video xét ở tầng 1 (nhiều -> nhiều L hơn)
+  const [infoFrame, setInfoFrame] = useState(null) // frame đang xem ±10 ({L, V, frame_id}) | null
 
   const setField = (i, field, val) =>
     setEvents(prev => prev.map((e, idx) => (idx === i ? { ...e, [field]: val } : e)))
@@ -179,6 +188,16 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
                       <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
                       <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
                       <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {combo.join(', ')}</span>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onSubmitCombo?.({ videoId: vid.video_id, frameIds: combo })
+                        }}
+                      >
+                        Nộp combo
+                      </Button>
                       <span style={{ marginLeft: 'auto', color: '#999' }}>{open ? '▾' : '▸'}</span>
                     </div>
                     {open && (
@@ -188,11 +207,13 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
                             key={ei}
                             L={vid.L}
                             V={vid.V}
+                            videoId={vid.video_id}
                             frameId={fid}
                             fps={vid.fps}
                             videoUrl={vid.video_url}
                             eventIdx={ei}
                             path={vid.frame_paths?.[String(fid)]}
+                            onOpenInfo={setInfoFrame}
                           />
                         ))}
                       </div>
@@ -203,6 +224,14 @@ export default function TrakePanel({ language = false, model = 'beit3' }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Modal ±10 frame quanh frame được chọn (tái dùng từ search results) */}
+      {infoFrame && (
+        <Infor
+          setModalFlag={() => setInfoFrame(null)}
+          selectedFrame={infoFrame}
+        />
       )}
     </div>
   )

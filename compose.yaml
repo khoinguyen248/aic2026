@@ -6,6 +6,12 @@ services:
       context: ./backendAIC2025
       dockerfile: Dockerfile
       target: "${BACKEND_BUILD_TARGET:-production}"
+      args:
+        TORCH_INDEX: "${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}"
+        GPU_EXTRAS: "${GPU_EXTRAS:-}"
+
+    # GPU cho Qwen (chỉ có tác dụng khi Docker Desktop bật GPU; search vẫn chạy CPU).
+    # gpus: all
 
     restart: unless-stopped
 
@@ -23,12 +29,14 @@ services:
 
       # MongoDB OCR/ASR mới
       MONGO_SEARCH_ENABLED: "${MONGO_SEARCH_ENABLED:-false}"
-      MONGO_SEARCH_URI: "${MONGO_SEARCH_URI:-}"
+      # Backend luôn dùng DNS nội bộ của Compose; không dùng localhost và không cần
+      # sao chép URI có mật khẩu vào nhiều file .env.
+      MONGO_SEARCH_URI: "mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true"
       MONGO_SEARCH_DB: "${MONGO_SEARCH_DB:-aic2026}"
 
       # Semantic search/Qdrant chỉ bật khi dữ liệu và API đã được kiểm tra xong
       SEARCH_ENABLED: "${SEARCH_ENABLED:-false}"
-      BEIT3_CHECKPOINT_PATH: "${BEIT3_CHECKPOINT_PATH:-/models/beit3_large_itc_patch16_224.pth}"
+      BEIT3_CHECKPOINT_PATH: "${BEIT3_CHECKPOINT_PATH:-/models/beit3_large_patch16_224.pth}"
       EMBEDDING_ROOT: "${EMBEDDING_ROOT:-/data/embeddings}"
       METADATA_ROOT: "${METADATA_ROOT:-/data/metadata}"
       KEYFRAMES_PATH: "${KEYFRAMES_PATH:-/data/keyframes}"
@@ -44,8 +52,15 @@ services:
       - "./runtime-data/keyframes:/data/keyframes:ro"
       - "./runtime-data/metadata:/data/metadata:ro"
       - "${VIDEO_HOST_PATH:-./runtime-data/videos}:/data/videos:ro"
+      # Mount code từ host -> sửa code chỉ cần `docker compose restart backend-api`, KHỎI rebuild.
+      - "./backendAIC2025/app:/app/app"
+      - "./backendAIC2025/search_engine:/app/search_engine"
       - huggingface_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
 
     healthcheck:
       test:
@@ -140,6 +155,15 @@ services:
       - mongodb_config:/data/configdb
       - mongodb_mongot:/data/mongot
 
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "mongosh --quiet --username \"$$MONGODB_INITDB_ROOT_USERNAME\" --password \"$$MONGODB_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 }).ok\" | grep 1"
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
   qdrant:
     image: qdrant/qdrant:latest
 
@@ -154,16 +178,16 @@ services:
 
 volumes:
   mongodb_data:
-    external: true
     name: aic2026_mongodb_data_v2
+    external: true
 
   mongodb_config:
-    external: true
     name: aic2026_mongodb_config_v2
+    external: true
 
   mongodb_mongot:
-    external: true
     name: aic2026_mongodb_mongot_v2
+    external: true
 
   huggingface_cache:
     name: aic2026_huggingface_cache

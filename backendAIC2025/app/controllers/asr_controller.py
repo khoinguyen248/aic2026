@@ -13,7 +13,9 @@ from ..services.mongo_search import get_database
 
 _ASR_PROJECT = {
     "_id": 0,
+    "idx": 1,
     "video_id": 1,
+    "frame_id": 1,
     "t_start": 1,
     "t_end": 1,
     "frame_start": 1,
@@ -30,34 +32,212 @@ def _parse_video_id(video_id):
     return None, None
 
 
-def asr_lookup(query, k=50):
+def asr_lookup(
+    query: str,
+    k: int = 10000,
+    fuzzy_max_edits: int = 1,
+    fuzzy_prefix_length: int = 1,
+    fuzzy_max_expansions: int = 10000,
+):
     """Cách search của bạn: Atlas $search (index asr_search) -> fallback regex trên text."""
     query = (query or "").strip()
     if not query:
         return []
     collection = get_database()["asr_metadata"]
 
+    # --------------------------------------------------------
+    # STAGE 1: EXACT TOKEN SEARCH
+    # --------------------------------------------------------
+
+    exact_results = []
+
     try:
-        pipeline = [
+
+        exact_pipeline = [
             {
                 "$search": {
                     "index": "asr_search",
-                    "text": {"query": query, "path": "text", "fuzzy": {"maxEdits": 1, "prefixLength": 1}},
+                    "text": {
+                        "query": query,
+                        "path": "text",
+
+                        # IMPORTANT:
+                        # Every query token must exist exactly.
+                        "matchCriteria": "all",
+                    },
                 }
             },
-            {"$limit": int(k)},
-            {"$project": {**_ASR_PROJECT, "score": {"$meta": "searchScore"}}},
-        ]
-        results = list(collection.aggregate(pipeline))
-        if results:
-            return results
-    except Exception as e:
-        current_app.logger.info("ASR $search không dùng được (%s) -> fallback regex", e)
 
-    cur = collection.find(
-        {"text": {"$regex": re.escape(query), "$options": "i"}}, _ASR_PROJECT
-    ).limit(int(k))
-    return [{**doc, "score": 1.0} for doc in cur]
+            {
+                "$limit": k
+            },
+
+            {
+                "$project": {
+                    **_ASR_PROJECT,
+                    "score": {
+                        "$meta": "searchScore"
+                    },
+                }
+            },
+        ]
+
+        exact_results = list(
+            collection.aggregate(exact_pipeline)
+        )
+
+    except Exception as e:
+
+        current_app.logger.info(
+            "ASR exact $search failed: %s",
+            e,
+        )
+
+
+    # --------------------------------------------------------
+    # If exact search already fills the requested K,
+    # DO NOT RUN FUZZY.
+    # --------------------------------------------------------
+
+    if len(exact_results) >= k:
+
+        for doc in exact_results:
+            doc["match_type"] = "exact"
+
+        return exact_results[:k]
+
+
+    # --------------------------------------------------------
+    # STAGE 2: FUZZY SEARCH
+    # --------------------------------------------------------
+
+    fuzzy_results = []
+
+    remaining = k - len(exact_results)
+
+    try:
+
+        # Request more candidates than necessary because
+        # fuzzy search will also return exact documents.
+        print("=" * 10)
+        print("fuzzy search")
+        print("=" * 10)
+        fuzzy_candidate_limit = max(
+            remaining * 3,
+            100,
+        )
+
+        fuzzy_pipeline = [
+            {
+                "$search": {
+                    "index": "asr_search",
+                    "text": {
+                        "query": query,
+                        "path": "text",
+
+                        # All query tokens must have a fuzzy
+                        # counterpart.
+                        # "matchCriteria": "all",
+
+                        "fuzzy": {
+                            "maxEdits": fuzzy_max_edits,
+                            "prefixLength": fuzzy_prefix_length,
+                            # "maxExpansions": fuzzy_max_expansions,
+                        },
+                    },
+                }
+            },
+
+            {
+                "$limit": fuzzy_candidate_limit
+            },
+
+            {
+                "$project": {
+                    **_ASR_PROJECT,
+                    "score": {
+                        "$meta": "searchScore"
+                    },
+                }
+            },
+        ]
+
+        fuzzy_results = list(
+            collection.aggregate(fuzzy_pipeline)
+        )
+        print(f"result: {fuzzy_results}")
+
+    except Exception as e:
+
+        current_app.logger.info(
+            "ASR fuzzy $search failed: %s",
+            e,
+        )
+
+
+    # --------------------------------------------------------
+    # REMOVE DUPLICATES
+    # --------------------------------------------------------
+
+    exact_ids = set()
+
+    for doc in exact_results:
+
+        # idx is your stable frame identifier.
+        if doc.get("idx") is not None:
+            exact_ids.add(
+                ("idx", doc["idx"])
+            )
+
+        else:
+            exact_ids.add(
+                (
+                    "frame",
+                    doc.get("video_id"),
+                    doc.get("frame_id"),
+                )
+            )
+
+
+    fuzzy_only = []
+
+    for doc in fuzzy_results:
+
+        if doc.get("idx") is not None:
+            key = ("idx", doc["idx"])
+        else:
+            key = (
+                "frame",
+                doc.get("video_id"),
+                doc.get("frame_id"),
+            )
+
+        # Exact result already exists.
+        if key in exact_ids:
+            continue
+
+        doc["match_type"] = "fuzzy"
+
+        fuzzy_only.append(doc)
+
+
+    # --------------------------------------------------------
+    # MERGE:
+    #
+    # EXACT FIRST
+    # ↓
+    # FUZZY SECOND
+    # --------------------------------------------------------
+
+    for doc in exact_results:
+        doc["match_type"] = "exact"
+
+    results = (
+        exact_results
+        + fuzzy_only[:remaining]
+    )
+
+    return results[:k]
 
 
 def asr_search():
@@ -65,7 +245,7 @@ def asr_search():
     try:
         data = request.get_json(force=True, silent=True) or {}
         query = data.get("query")
-        k = int(data.get("k", 50)) or 50
+        k = int(data.get("k", 10000)) or 10000
 
         segments = asr_lookup(query, k)
 

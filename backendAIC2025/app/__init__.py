@@ -87,19 +87,26 @@ def create_app():
     app.register_blueprint(temporal_bp, url_prefix="/search")
 
     if Config.SEARCH_ENABLED:
-        # Main search / image search / health = Qdrant (teammate):
-        #   /search/collection, /search/image, /search/health
         from .routes.qdrant_routes import qdrant_bp
-
         app.register_blueprint(qdrant_bp, url_prefix="/search")
 
-        # TRAKE + frame/infoframes chạy trên Qdrant. OCR/ASR đã được đăng ký độc lập ở trên.
-        # Guard: nếu thiếu dependency search thì không làm sập cả app.
         try:
             from .routes.search_routes import search_bp
-
             app.register_blueprint(search_bp, url_prefix="/search")
         except Exception as exc:
             app.logger.warning("Không load được search_bp (TRAKE/ASR/OCR): %s", exc)
+    else:
+        # Dù SEARCH_ENABLED=false, vẫn đăng ký /framerange và /infoframes
+        # vì chúng chỉ cần Qdrant (không cần BEiT-3/FAISS model).
+        try:
+            from .controllers.infoframes_controller import frames_in_range, temporal_frames
+            from flask import Blueprint
+            _info_bp = Blueprint("infoframes_fallback", __name__)
+            _info_bp.add_url_rule("/infoframes", view_func=temporal_frames, methods=["POST"])
+            _info_bp.add_url_rule("/framerange", view_func=frames_in_range, methods=["POST"])
+            app.register_blueprint(_info_bp, url_prefix="/search")
+        except Exception as exc:
+            app.logger.warning("/search/framerange fallback disabled: %s", exc)
+
 
     return app
