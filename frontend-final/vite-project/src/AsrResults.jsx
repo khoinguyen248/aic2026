@@ -104,6 +104,7 @@ export default function AsrResults({ loading, error, results }) {
                 {s.video_id}
                 <span style={{ color: '#aaa', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>
                   {s.t_start != null ? `${s.t_start}s–${s.t_end}s` : ''} · frame {s.frame_start}–{s.frame_end}
+                  {s.fps != null ? ` · fps ${s.fps}` : ''}
                 </span>
                 {yt && <a href={yt} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8 }}><CiLink /></a>}
               </div>

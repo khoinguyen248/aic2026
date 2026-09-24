@@ -247,11 +247,11 @@ def asr_search():
 
         segments = asr_lookup(query, k)
 
-        # enrich video_url từ ocr_metadata (1 query/video) để UI dựng link YouTube
+        # enrich video_url + fps từ ocr_metadata (1 query/video) để UI dựng link YouTube + hiển thị fps
         ocr = get_database()["ocr_metadata"]
         meta = {}
         for vid in {s.get("video_id") for s in segments if s.get("video_id")}:
-            meta[vid] = ocr.find_one({"video_id": vid}, {"_id": 0, "video_url": 1}) or {}
+            meta[vid] = ocr.find_one({"video_id": vid}, {"_id": 0, "video_url": 1, "fps": 1}) or {}
 
         results = []
         for s in segments:
@@ -269,6 +269,7 @@ def asr_search():
                     "text": s.get("text"),
                     "score": s.get("score"),
                     "video_url": meta.get(vid, {}).get("video_url"),
+                    "fps": meta.get(vid, {}).get("fps"),
                 }
             )
 

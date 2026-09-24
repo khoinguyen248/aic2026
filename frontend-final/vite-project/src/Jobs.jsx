@@ -20,6 +20,24 @@ import TrakePanel from './TrakePanel.jsx';
 import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
 
+const locationFromResult = (item) => {
+  const source = typeof item === 'object' && item ? item : {};
+  const candidate = [source.video_id, source.path, source.url]
+    .filter(Boolean)
+    .join(' ');
+  const matched = candidate.match(/(?:[KL])?(\d+)_V(\d+)/i);
+  const l = source.L ?? matched?.[1] ?? '';
+  const v = source.V ?? matched?.[2] ?? '';
+
+  return {
+    L: String(l).replace(/^[KL]/i, ''),
+    V: String(v).replace(/^V/i, ''),
+  };
+};
+
+const compareCodes = (left, right) =>
+  Number(left) - Number(right) || String(left).localeCompare(String(right));
+
 function Jobs() {
   const [drawerOpen, setDrawerOpen] = useState(true); // mở mặc định
   const openDrawer = () => setDrawerOpen(true);
@@ -46,6 +64,10 @@ function Jobs() {
   const [fuzzyLevel, setFuzzyLevel] = useState(1)
   const [topk, setTopk] = useState(100)
   const [retrival, setRetrival] = useState([]) // array of objects {path, L, V, frame_id, ...}
+  const [filterLs, setFilterLs] = useState([])
+  const [filterVs, setFilterVs] = useState([])
+  const [excludedScopes, setExcludedScopes] = useState([])
+  const [keepFilters, setKeepFilters] = useState(true)
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState("")
   const [imageSearching, setImageSearching] = useState(false)
@@ -79,10 +101,23 @@ function Jobs() {
   const [captionQuery, setCaptionQuery] = useState("")
   const [captionLoading, setCaptionLoading] = useState(false)
   const [captionError, setCaptionError] = useState("")
+  
+  const clearResultFilters = () => {
+    setFilterLs([])
+    setFilterVs([])
+    setExcludedScopes([])
+    setPage(1)
+  }
+
+  const prepareFiltersForNewSearch = () => {
+    if (!keepFilters) clearResultFilters()
+    else setPage(1)
+  }
 
   const runOcrSearch = async () => {
     if (!ocrQuery.trim()) { setOcrError("Enter on-screen text to search"); return }
     setOcrError(""); setOcrLoading(true)
+    prepareFiltersForNewSearch()
     // xoá kết quả ASR standalone để bảng frame OCR hiện ra
     setAsrResults([]); setAsrError("")
     try {
@@ -108,9 +143,44 @@ function Jobs() {
   }
 
   // normalize retrieval into rows of 5
+  const availableLs = [...new Set(retrival.map(locationFromResult).map(({ L }) => L).filter(Boolean))]
+    .sort(compareCodes);
+  const availableVs = [...new Set(retrival
+    .map(locationFromResult)
+    .filter(({ L, V }) => V && (!filterLs.length || filterLs.includes(L)))
+    .map(({ V }) => V))]
+    .sort(compareCodes);
+  const availableVideoPairs = [...new Map(
+    retrival.map(locationFromResult)
+      .filter(({ L, V }) => L && V)
+      .map(({ L, V }) => [`${L}:${V}`, { L, V }])
+  ).values()].sort((left, right) =>
+    compareCodes(left.L, right.L) || compareCodes(left.V, right.V)
+  );
+  const filteredRetrival = retrival.filter((item) => {
+    const { L, V } = locationFromResult(item);
+    // Lọc L và V theo từng tập độc lập. Khi chọn L01, L02 và V001:
+    // - L02 có V001 -> chỉ giữ L02_V001.
+    // - L01 không có V001 -> vẫn giữ toàn bộ L01, không bị thiếu kết quả.
+    const matchesIncludedL = !filterLs.length || filterLs.includes(L);
+    const selectedVideoExistsInThisL = filterVs.length > 0 && retrival.some((candidate) => {
+      const location = locationFromResult(candidate);
+      return location.L === L && filterVs.includes(location.V);
+    });
+    const matchesIncludedV = !filterVs.length
+      || !filterLs.length
+      || !selectedVideoExistsInThisL
+      || filterVs.includes(V);
+    const included = matchesIncludedL && matchesIncludedV;
+    const excluded = excludedScopes.includes(`l:${L}`)
+      || excludedScopes.includes(`lv:${L}:${V}`);
+    return included && !excluded;
+  });
+
+  // normalize the filtered retrieval into rows of 5
   const rows = [];
-  for (let i = 0; i < retrival.length; i += 5) {
-    rows.push(retrival.slice(i, i + 5));
+  for (let i = 0; i < filteredRetrival.length; i += 5) {
+    rows.push(filteredRetrival.slice(i, i + 5));
   }
 
   // columns dynamic: 5 columns
@@ -182,7 +252,7 @@ function Jobs() {
             </div>
           )}
           <div>
-            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s ${fps}`}
+            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
             {url && <a href={`${url}&t=${time}s`} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
           </div>
           {metadataText && (
@@ -211,6 +281,41 @@ function Jobs() {
             setAnsflag(true)
             setInf(infor)
           }} />
+          <div className="result-action-buttons">
+            {pathVal && <Button
+              className="result-action-button"
+              size="large"
+              icon={<FaFolderOpen />}
+              title="Xem các frame lân cận"
+              aria-label="Xem các frame lân cận"
+              onClick={() => {
+                setModalFlag(true);
+                setSelectedFrame({ idx: item.idx, L: item.L, V: item.V });
+              }}
+            />}
+            {url && <Button
+              className="result-action-button"
+              size="large"
+              icon={<FaCirclePlay />}
+              title="Mở video tại thời điểm này"
+              aria-label="Mở video tại thời điểm này"
+              onClick={() => {
+                setVidFlag(`${url}&t=${time}s`);
+                setYtflag(true);
+              }}
+            />}
+            <Button
+              className="result-action-button"
+              size="large"
+              icon={<IoIosAddCircle />}
+              title="Chọn kết quả để trả lời"
+              aria-label="Chọn kết quả để trả lời"
+              onClick={() => {
+                setAnsflag(true)
+                setInf(infor)
+              }}
+            />
+          </div>
 
 
 
@@ -292,10 +397,16 @@ function Jobs() {
       }).filter(Boolean);
 
       console.log("Normalized result count:", normalized.length, normalized.slice(0, 3));
+      // Bất kỳ search nào đổ vào bảng frame chính -> tắt panel ASR standalone để quay lại được semantic/OCR
+      setAsrResults([]);
+      setAsrError("");
+      prepareFiltersForNewSearch();
       setRetrival(normalized);
       return normalized;
     } catch (err) {
       console.error("Search failed:", err?.response?.data ?? err.message ?? err);
+      setAsrResults([]);
+      setAsrError("");
       setRetrival([]);
       return [];
     }
@@ -668,20 +779,83 @@ function Jobs() {
             ) : asrActive ? (
               <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
             ) : retrival.length > 0 ? (
-              <Table
-                style={{ width: '100%', margin: '0', background: '#fff' }}
-                dataSource={dataSource}
-                columns={columns}
-                pagination={{
-                  current: page,
-                  pageSize: pageSize,
-                  showSizeChanger: true,
-                  onChange: (page, pageSize) => {
-                    setPage(page);
-                    setPageSize(pageSize);
-                  },
-                }}
-              />
+              <>
+                <div className="result-filter-bar">
+                  <span className="result-filter-count">
+                    Hiển thị {filteredRetrival.length}/{retrival.length} kết quả
+                  </span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    className="result-filter-select"
+                    placeholder="Chọn một hoặc nhiều bộ L"
+                    value={filterLs}
+                    onChange={(values) => {
+                      setFilterLs(values);
+                      setFilterVs([]);
+                      setPage(1);
+                    }}
+                  >
+                    {availableLs.map((value) => (
+                      <Option key={value} value={value}>
+                        {Number(value) <= 20 ? 'K' : 'L'}{value}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    className="result-filter-select"
+                    placeholder="V chỉ thu hẹp bộ L có video đó"
+                    value={filterVs}
+                    onChange={(values) => { setFilterVs(values); setPage(1); }}
+                  >
+                    {availableVs.map((value) => (
+                      <Option key={value} value={value}>V{value}</Option>
+                    ))}
+                  </Select>
+             
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    className="result-filter-select result-exclude-select"
+                    placeholder="Lọc bỏ L hoặc L_V"
+                    value={excludedScopes}
+                    onChange={(values) => { setExcludedScopes(values); setPage(1); }}
+                  >
+                    {availableLs.map((value) => (
+                      <Option key={`l:${value}`} value={`l:${value}`}>
+                        Bỏ toàn bộ {Number(value) <= 20 ? 'K' : 'L'}{value}
+                      </Option>
+                    ))}
+                    {availableVideoPairs.map(({ L, V }) => (
+                      <Option key={`lv:${L}:${V}`} value={`lv:${L}:${V}`}>
+                        Bỏ {Number(L) <= 20 ? 'K' : 'L'}{L}_V{V}
+                      </Option>
+                    ))}
+                  </Select>
+                  <Checkbox checked={keepFilters} onChange={(event) => setKeepFilters(event.target.checked)}>
+                    Giữ bộ lọc khi tìm kiếm mới
+                  </Checkbox>
+                  <Button size="small" onClick={clearResultFilters}>Xóa bộ lọc</Button>
+                </div>
+                <Table
+                  style={{ width: '100%', margin: '0', background: '#fff' }}
+                  dataSource={dataSource}
+                  columns={columns}
+                  locale={{ emptyText: 'Không có kết quả phù hợp với bộ lọc L/V.' }}
+                  pagination={{
+                    current: page,
+                    pageSize: pageSize,
+                    showSizeChanger: true,
+                    onChange: (page, pageSize) => {
+                      setPage(page);
+                      setPageSize(pageSize);
+                    },
+                  }}
+                />
+              </>
             ) : (
               <div
                 style={{

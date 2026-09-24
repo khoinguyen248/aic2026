@@ -29,7 +29,9 @@ services:
 
       # MongoDB OCR/ASR mới
       MONGO_SEARCH_ENABLED: "${MONGO_SEARCH_ENABLED:-false}"
-      MONGO_SEARCH_URI: "${MONGO_SEARCH_URI:-}"
+      # Backend luôn dùng DNS nội bộ của Compose; không dùng localhost và không cần
+      # sao chép URI có mật khẩu vào nhiều file .env.
+      MONGO_SEARCH_URI: "mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin&directConnection=true"
       MONGO_SEARCH_DB: "${MONGO_SEARCH_DB:-aic2026}"
 
       # Semantic search/Qdrant chỉ bật khi dữ liệu và API đã được kiểm tra xong
@@ -48,12 +50,17 @@ services:
     volumes:
       - "./runtime-data/checkpoints:/models:ro"
       - "./runtime-data/keyframes:/data/keyframes:ro"
+      - "./runtime-data/metadata:/data/metadata:ro"
       - "${VIDEO_HOST_PATH:-./runtime-data/videos}:/data/videos:ro"
       # Mount code từ host -> sửa code chỉ cần `docker compose restart backend-api`, KHỎI rebuild.
       - "./backendAIC2025/app:/app/app"
       - "./backendAIC2025/search_engine:/app/search_engine"
       - huggingface_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
+
+    depends_on:
+      mongodb:
+        condition: service_healthy
 
     healthcheck:
       test:
@@ -148,6 +155,15 @@ services:
       - mongodb_config:/data/configdb
       - mongodb_mongot:/data/mongot
 
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "mongosh --quiet --username \"$$MONGODB_INITDB_ROOT_USERNAME\" --password \"$$MONGODB_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand({ ping: 1 }).ok\" | grep 1"
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
   qdrant:
     image: qdrant/qdrant:latest
 
@@ -162,15 +178,12 @@ services:
 
 volumes:
   mongodb_data:
-    external: true
     name: aic2026_mongodb_data
 
   mongodb_config:
-    external: true
     name: aic2026_mongodb_config
 
   mongodb_mongot:
-    external: true
     name: aic2026_mongodb_mongot
 
   huggingface_cache:

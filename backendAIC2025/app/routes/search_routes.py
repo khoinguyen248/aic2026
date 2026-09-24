@@ -1,6 +1,6 @@
-import logging
-
 from flask import Blueprint
+
+import logging
 
 # ASR/OCR (code của bạn) đọc Mongo teammate — import NHẸ (chỉ pymongo), luôn đăng ký được.
 from ..controllers.asr_controller import asr_search
