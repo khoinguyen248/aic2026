@@ -52,6 +52,16 @@ def qdrant_health():
         return jsonify({"ok": False, "error": str(exc)}), 503
 
 
+def _maybe_translate(text: str) -> str:
+    """Dịch câu truy vấn tiếng Việt -> tiếng Anh (model embedding train chủ yếu trên tiếng Anh).
+    Dùng MyMemoryTranslator thay vì GoogleTranslator: endpoint scrape translate.google.com
+    của deep_translator bị Google chặn (TooManyRequests) từ IP server, MyMemory thì không.
+    """
+    from deep_translator import MyMemoryTranslator
+
+    return MyMemoryTranslator(source="vi-VN", target="en-US").translate(text)
+
+
 def qdrant_text_search():
     data = request.get_json(silent=True) or {}
     query = next(
@@ -68,6 +78,12 @@ def qdrant_text_search():
     )
     if not query:
         return jsonify({"ok": False, "error": "query is required"}), 400
+
+    if data.get("language"):
+        try:
+            query = _maybe_translate(query)
+        except Exception as exc:
+            current_app.logger.warning("Translate query thất bại, dùng nguyên văn: %s", exc)
 
     try:
         model = _model_from_request(data.get("model"))

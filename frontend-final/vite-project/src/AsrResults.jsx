@@ -4,10 +4,11 @@ import { Tag } from 'antd'
 import { CiLink } from 'react-icons/ci'
 import { frameUrl } from './api'
 
-function SegImage({ L, V, frameId, alt }) {
+function SegImage({ L, V, frameId, path, alt }) {
   const [failed, setFailed] = useState(false)
-  const noData = L == null || V == null || frameId == null
-  if (noData || failed) {
+  // Ưu tiên keyframe có sẵn trên đĩa (path); chỉ decode từ video gốc khi không có path.
+  const src = path ? `/frames/${String(path).replace(/^\/+/, '')}` : (L != null && V != null && frameId != null ? frameUrl(L, V, frameId) : null)
+  if (!src || failed) {
     return (
       <div style={{ width: 200, height: 112, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 12, borderRadius: 6, textAlign: 'center', padding: 4, flexShrink: 0 }}>
         No image<br />(no video on machine)
@@ -16,7 +17,7 @@ function SegImage({ L, V, frameId, alt }) {
   }
   return (
     <img
-      src={frameUrl(L, V, frameId)}
+      src={src}
       alt={alt}
       style={{ width: 200, height: 112, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee', flexShrink: 0 }}
       onError={() => setFailed(true)}
@@ -46,7 +47,7 @@ export default function AsrResults({ loading, error, results }) {
             : null
           return (
             <div key={i} style={{ display: 'flex', gap: 14, border: '1px solid #eee', borderRadius: 10, padding: 12, background: '#fff' }}>
-              <SegImage L={s.L} V={s.V} frameId={s.frame_start} alt={`asr-${i}`} />
+              <SegImage L={s.L} V={s.V} frameId={s.frame_id ?? s.frame_start} path={s.path} alt={`asr-${i}`} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
                   {s.video_id}

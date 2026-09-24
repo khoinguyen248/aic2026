@@ -50,7 +50,7 @@ function Jobs() {
   const [screen1, setScreen1] = useState("");
   const [screen2, setScreen2] = useState("");
   const [screen3, setScreen3] = useState("");
-  const [lang, setLang] = useState("Eng")
+  const [lang, setLang] = useState(false)
   const [inf, setInf] = useState()
 
   const [selectedFrame, setSelectedFrame] = useState(null);
@@ -519,7 +519,7 @@ function Jobs() {
               <Input.TextArea
                 placeholder="e.g. the chairman announces the opening"
                 value={asrQuery}
-                autoSize={{ minRows: 2, maxRows: 4 }}
+                rows={2}
                 onChange={(e) => setAsrQuery(e.target.value)}
               />
               {asrMode === "standalone" ? (

@@ -1,8 +1,17 @@
 import os
+import re
 from functools import lru_cache
 from typing import Optional
 
 from pymongo import MongoClient
+
+
+def _parse_video_id(video_id):
+    """'L30_V068' -> (L='30', V='068'). Không khớp -> (None, None)."""
+    m = re.match(r"L(.+?)_V(.+)", str(video_id))
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
 
 
 @lru_cache(maxsize=1)
@@ -100,57 +109,52 @@ def search_asr(
             "$project": {
                 "_id": 0,
                 "video_id": 1,
+                "t_start": 1,
+                "t_end": 1,
                 "frame_start": 1,
                 "frame_end": 1,
+                "text": 1,
+                "score": {"$meta": "searchScore"},
             }
         },
     ]
 
     asr_results = list(asr_collection.aggregate(pipeline))
 
-    # ASR describes a time range rather than one displayable keyframe. Map each
-    # matched range to the OCR keyframes belonging to the same video and range.
-    frame_results = []
-    seen_ids = set()
-
+    # ASR mô tả 1 khoảng thời gian, không phải 1 keyframe cụ thể -> lấy keyframe
+    # có sẵn gần nhất trong khoảng đó để hiển thị ảnh (thay vì decode từ video gốc,
+    # vốn đòi hỏi file .mp4 mà máy chạy search có thể không có).
+    results = []
     for asr_hit in asr_results:
         video_id = asr_hit.get("video_id")
         frame_start = asr_hit.get("frame_start")
         frame_end = asr_hit.get("frame_end")
-        if video_id is None or frame_start is None or frame_end is None:
-            continue
+        L, V = _parse_video_id(video_id)
 
-        cursor = ocr_collection.find(
-            {
-                "video_id": video_id,
-                "frame_id": {
-                    "$gte": frame_start,
-                    "$lte": frame_end,
+        frame_doc = None
+        if video_id is not None and frame_start is not None and frame_end is not None:
+            frame_doc = ocr_collection.find_one(
+                {
+                    "video_id": video_id,
+                    "frame_id": {"$gte": frame_start, "$lte": frame_end},
                 },
-            },
+                {"_id": 0, "frame_id": 1, "path": 1, "video_url": 1, "fps": 1},
+                sort=[("frame_id", 1)],
+            ) or {}
+
+        results.append(
             {
-                "idx": 1,
-                "video_id": 1,
-                "frame_id": 1,
-                "keyframe_order": 1,
-                "frame_stamp": 1,
-                "ocr_text": 1,
-                "path": 1,
-                "video_path": 1,
-                "video_url": 1,
-            },
-        ).sort("frame_id", 1)
+                **asr_hit,
+                "L": L,
+                "V": V,
+                "frame_id": frame_doc.get("frame_id", frame_start) if frame_doc else frame_start,
+                "path": frame_doc.get("path") if frame_doc else None,
+                "video_url": frame_doc.get("video_url") if frame_doc else None,
+                "fps": frame_doc.get("fps") if frame_doc else None,
+            }
+        )
 
-        for frame in cursor:
-            document_id = frame.pop("_id", None)
-            dedupe_key = document_id or (frame.get("video_id"), frame.get("frame_id"))
-            if dedupe_key in seen_ids:
-                continue
-
-            seen_ids.add(dedupe_key)
-            frame_results.append(frame)
-
-    return frame_results
+    return results
 
 
 # ---------------------------------------------------------------------------
