@@ -66,6 +66,8 @@ def temporal_frames():
     """
     try:
         data = request.get_json(force=True, silent=True) or {}
+        print("-----------temporal_frames-------")
+        print("data: ", data)
         L = str(data.get("L") or "").strip()
         V = str(data.get("V") or "").strip()
         video_id = str(data.get("video_id") or "").strip()
@@ -136,12 +138,19 @@ def frames_in_range():
     try:
         from qdrant_client.http.models import FieldCondition, Filter, MatchValue, Range
 
+        print("-------in frame_range func----------")
         data = request.get_json(force=True, silent=True) or {}
         L = str(data.get("L") or "").strip()
         V = str(data.get("V") or "").strip()
         video_id = str(data.get("video_id") or "").strip()
         fs = _to_int(data.get("frame_start"), None)
         fe = _to_int(data.get("frame_end"), None)
+        print("L:", L)
+        print("V:", V)
+        print("video_id:", video_id)
+        print("fs:", fs)
+        print("fe:", fe)
+        print("data", data)
 
         if not video_id:
             if not (L and V):

@@ -13,7 +13,9 @@ from ..services.mongo_search import get_database
 
 _ASR_PROJECT = {
     "_id": 0,
+    "idx": 1,
     "video_id": 1,
+    "frame_id": 1,
     "t_start": 1,
     "t_end": 1,
     "frame_start": 1,

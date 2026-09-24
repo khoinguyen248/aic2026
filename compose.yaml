@@ -179,12 +179,15 @@ services:
 volumes:
   mongodb_data:
     name: aic2026_mongodb_data
+    external: true
 
   mongodb_config:
     name: aic2026_mongodb_config
+    external: true
 
   mongodb_mongot:
     name: aic2026_mongodb_mongot
+    external: true
 
   huggingface_cache:
     name: aic2026_huggingface_cache

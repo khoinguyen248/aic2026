@@ -75,7 +75,9 @@ style={{
         width: "180px",
         height: "100px",
         objectFit: "cover",
-                     border: Number(f.idx) === Number(targetIdx) ? "3px solid red" : "none"
+                     border: Number(f.idx) === Number(idChecked)
+                      ? "3px solid red"
+                      : "none"
 
       }}                
               />

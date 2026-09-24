@@ -10,6 +10,7 @@ from flask import current_app, jsonify, request
 
 def _number(value: object, prefix: str, width: int | None = None) -> str:
     raw = str(value or "").strip().upper()
+    print("="*10, raw)
     if raw.startswith(prefix):
         raw = raw[len(prefix) :]
     if not raw.isdigit():
@@ -40,11 +41,13 @@ def _load_video_metadata(l_value: object, v_value: object) -> list[dict]:
 def temporal_frames():
     """POST /search/infoframes: trả target và tối đa 10 keyframe mỗi phía."""
     data = request.get_json(silent=True) or {}
+    print("data", data)
     try:
         if "idx" not in data:
             raise ValueError("idx is required")
 
         target_idx = int(data["idx"])
+        print("target_idx", target_idx)
         window = max(1, min(int(data.get("window", 10)), 100))
         items = _load_video_metadata(data.get("L"), data.get("V"))
         target_position = next(
