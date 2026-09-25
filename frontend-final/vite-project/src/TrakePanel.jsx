@@ -1,6 +1,6 @@
 // TrakePanel.jsx — enter N events -> /search/trake -> combo list -> click to verify frames
 import { useState } from 'react'
-import { Input, InputNumber, Button, Spin, Tag } from 'antd'
+import { Input, InputNumber, Button, Spin, Tag, Checkbox, Tooltip } from 'antd'
 import { IoIosAddCircle } from 'react-icons/io'
 import { CiLink } from 'react-icons/ci'
 import { FaFolderOpen } from 'react-icons/fa'
@@ -55,9 +55,10 @@ function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOp
   )
 }
 
-export default function TrakePanel({ language = false, model = 'beit3', onSubmitCombo }) {
+export default function TrakePanel({ language: initialLanguage = false, model = 'beit3', onSubmitCombo }) {
   // Mỗi event: { q: mô tả hình ảnh, ocr: chữ trên màn hình, asr: lời nói } — ocr/asr tùy chọn.
   const [events, setEvents] = useState([{ q: '', ocr: '', asr: '' }, { q: '', ocr: '', asr: '' }])
+  const [language, setLanguage] = useState(initialLanguage)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
@@ -99,6 +100,18 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <Tag color="blue">TRAKE</Tag>
         <span style={{ color: '#888', fontSize: 13 }}>Enter events in chronological order</span>
+        <Tooltip title="Dịch mô tả hình ảnh từ tiếng Việt sang tiếng Anh trước khi tìm (Google Translate). Không áp dụng cho OCR/ASR.">
+          <Checkbox
+            checked={language}
+            onChange={(e) => setLanguage(e.target.checked)}
+            style={{ marginLeft: 'auto' }}
+          >
+            <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+              <img src="/tran.png" alt="" style={{ width: 16, height: 16 }} />
+              <span>Translate</span>
+            </div>
+          </Checkbox>
+        </Tooltip>
       </div>
 
       {events.map((ev, i) => (
