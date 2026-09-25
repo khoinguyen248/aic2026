@@ -54,11 +54,18 @@ class Config:
     TRAKE_TOP_M = int(os.getenv("TRAKE_TOP_M", "150"))
     TRAKE_TOP_VIDEOS = int(os.getenv("TRAKE_TOP_VIDEOS", "2"))
     TRAKE_MAX_COMBOS = int(os.getenv("TRAKE_MAX_COMBOS", "100"))
+    # Trần cứng tuyệt đối (khớp max=500 của ô "combos" trên UI) — TRAKE_MAX_COMBOS là mặc định.
+    TRAKE_MAX_COMBOS_HARD = int(os.getenv("TRAKE_MAX_COMBOS_HARD", "500"))
     TRAKE_TIER3_RADIUS = int(os.getenv("TRAKE_TIER3_RADIUS", "15"))
     TRAKE_TIER3_STRIDE = int(os.getenv("TRAKE_TIER3_STRIDE", "1"))
     TRAKE_VIDEO_CONFIDENCE_THRESHOLD = float(
         os.getenv("TRAKE_VIDEO_CONFIDENCE_THRESHOLD", "0.8")
     )
+
+    # Trần khoảng cách thời gian giữa 2 event LIÊN TIẾP (giây) khi ghép tổ hợp cuối cùng. 10s ban đầu
+    # quá chặt cho truy vấn nhịp độ chậm (video nấu ăn, hướng dẫn...) -> nâng mặc định lên 60s.
+    # Quy đổi ra frame theo fps thực tế của từng video (vd 60s @25fps = 1500 frame).
+    TRAKE_MAX_EVENT_GAP_SECONDS = float(os.getenv("TRAKE_MAX_EVENT_GAP_SECONDS", "60"))
 
     # Ghép OCR/ASR theo TỪNG event (boost mềm): frame ứng viên của event nào khớp OCR (chữ trên
     # màn hình, trong ±WINDOW frame) hoặc rơi vào khoảng ASR (lời nói) của event đó -> nhân điểm

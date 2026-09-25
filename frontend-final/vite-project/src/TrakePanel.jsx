@@ -62,7 +62,6 @@ export default function TrakePanel({ language: initialLanguage = false, model = 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [openKey, setOpenKey] = useState(null) // `${vi}-${ci}`
   const [maxCombos, setMaxCombos] = useState(100) // số tổ hợp hiển thị (trần 500)
   const [topVideos, setTopVideos] = useState(2)   // số video xét ở tầng 1 (nhiều -> nhiều L hơn)
   const [infoFrame, setInfoFrame] = useState(null) // frame đang xem ±10 ({L, V, frame_id}) | null
@@ -85,7 +84,7 @@ export default function TrakePanel({ language: initialLanguage = false, model = 
     const asr = picked.map(e => (e.asr || '').trim())
     if (ocr.some(Boolean)) payload.events_ocr = ocr
     if (asr.some(Boolean)) payload.events_asr = asr
-    setError(''); setLoading(true); setResult(null); setOpenKey(null)
+    setError(''); setLoading(true); setResult(null)
     try {
       const resp = await trakeSearch(payload)
       if (!resp.data?.ok) { setError(resp.data?.error || 'Search failed'); }
@@ -189,51 +188,40 @@ export default function TrakePanel({ language: initialLanguage = false, model = 
                 </span>
               </div>
 
-              {(vid.combos || []).map((combo, ci) => {
-                const key = `${vi}-${ci}`
-                const open = openKey === key
-                return (
-                  <div key={ci} style={{ border: '1px solid #eee', borderRadius: 8, marginBottom: 6 }}>
-                    <div
-                      onClick={() => setOpenKey(open ? null : key)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', cursor: 'pointer' }}
+              {(vid.combos || []).map((combo, ci) => (
+                <div key={ci} style={{ border: '1px solid #eee', borderRadius: 8, marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+                    <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
+                    <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
+                    <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {combo.join(', ')}</span>
+                    <Button
+                      size="small"
+                      type="primary"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={() => onSubmitCombo?.({ videoId: vid.video_id, frameIds: combo })}
                     >
-                      <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
-                      <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
-                      <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {combo.join(', ')}</span>
-                      <Button
-                        size="small"
-                        type="primary"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onSubmitCombo?.({ videoId: vid.video_id, frameIds: combo })
-                        }}
-                      >
-                        Nộp combo
-                      </Button>
-                      <span style={{ marginLeft: 'auto', color: '#999' }}>{open ? '▾' : '▸'}</span>
-                    </div>
-                    {open && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '4px 12px 12px' }}>
-                        {combo.map((fid, ei) => (
-                          <FrameCell
-                            key={ei}
-                            L={vid.L}
-                            V={vid.V}
-                            videoId={vid.video_id}
-                            frameId={fid}
-                            fps={vid.fps}
-                            videoUrl={vid.video_url}
-                            eventIdx={ei}
-                            path={vid.frame_paths?.[String(fid)]}
-                            onOpenInfo={setInfoFrame}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      Nộp combo
+                    </Button>
                   </div>
-                )
-              })}
+                  {/* Hiện frame ngay, không cần bấm để xổ */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '4px 12px 12px' }}>
+                    {combo.map((fid, ei) => (
+                      <FrameCell
+                        key={ei}
+                        L={vid.L}
+                        V={vid.V}
+                        videoId={vid.video_id}
+                        frameId={fid}
+                        fps={vid.fps}
+                        videoUrl={vid.video_url}
+                        eventIdx={ei}
+                        path={vid.frame_paths?.[String(fid)]}
+                        onOpenInfo={setInfoFrame}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ))}
         </div>

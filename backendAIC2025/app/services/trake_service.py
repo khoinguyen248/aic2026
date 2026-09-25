@@ -29,17 +29,14 @@ logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
 
-# Khoảng cách tối đa giữa 2 event LIÊN TIẾP: 10 giây (~300 frame @30fps, ~250 frame @25fps).
-_MAX_EVENT_GAP_SECONDS = 10.0
-
-
 def _max_event_gap_frames(fps):
-    """Số frame tối đa cho phép giữa 2 event liên tiếp, suy từ fps của video (None nếu fps không hợp lệ)."""
+    """Số frame tối đa cho phép giữa 2 event liên tiếp, suy từ fps của video (None nếu fps không hợp lệ).
+    Ngưỡng giây lấy từ Config.TRAKE_MAX_EVENT_GAP_SECONDS (env TRAKE_MAX_EVENT_GAP_SECONDS)."""
     try:
         f = float(fps)
     except (TypeError, ValueError):
         return None
-    return round(f * _MAX_EVENT_GAP_SECONDS) if f > 0 else None
+    return round(f * Config.TRAKE_MAX_EVENT_GAP_SECONDS) if f > 0 else None
 
 _qwen_model = None
 _qwen_processor = None
