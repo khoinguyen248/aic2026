@@ -87,6 +87,7 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
   const [connecting, setConnecting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [lastResponse, setLastResponse] = useState(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -201,18 +202,10 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
   }
 
   const confirmSubmit = () => {
-    if (validationError) {
-      message.error(validationError)
-      return
-    }
-    Modal.confirm({
-      title: 'Xác nhận nộp đáp án?',
-      content: 'Mỗi lần nộp sai bị trừ điểm. Hãy kiểm tra VIDEO_ID, thời gian/frame và evaluation đang ACTIVE.',
-      okText: 'Nộp lên DRES',
-      cancelText: 'Kiểm tra lại',
-      okButtonProps: { danger: true },
-      onOk: doSubmit,
-    })
+    // validationError đã hiển thị qua Alert bên dưới nên chỉ cần chặn.
+    if (validationError) return
+    // React 19: Modal.confirm static của antd v5 không chạy -> dùng Modal có state.
+    setConfirmOpen(true)
   }
 
   const copyPayload = async () => {
@@ -250,6 +243,7 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
   )
 
   return (
+    <>
     <Modal
       open={open}
       onCancel={onClose}
@@ -343,5 +337,19 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
         )}
       </div>
     </Modal>
+
+    {/* Hộp xác nhận (state-controlled) — thay Modal.confirm static không chạy trên React 19 */}
+    <Modal
+      open={confirmOpen}
+      title="Xác nhận nộp đáp án?"
+      okText="Nộp lên DRES"
+      cancelText="Kiểm tra lại"
+      okButtonProps={{ danger: true }}
+      onOk={() => { setConfirmOpen(false); doSubmit() }}
+      onCancel={() => setConfirmOpen(false)}
+    >
+      Mỗi lần nộp sai bị trừ điểm. Hãy kiểm tra VIDEO_ID, thời gian/frame và evaluation đang ACTIVE.
+    </Modal>
+    </>
   )
 }
