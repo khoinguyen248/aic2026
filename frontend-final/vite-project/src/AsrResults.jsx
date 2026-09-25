@@ -2,8 +2,9 @@
 // Mỗi đoạn lời nói có khoảng frame -> hiện luôn các keyframe trong khoảng đó
 // (ảnh keyframe đọc từ Qdrant qua /search/framerange, giống OCR/main search).
 import { useEffect, useState } from 'react'
-import { Tag } from 'antd'
+import { Button, Tag } from 'antd'
 import { CiLink } from 'react-icons/ci'
+import { IoIosAddCircle } from 'react-icons/io'
 import { framesInRange } from './api'
 
 const frameSrc = (path) =>
@@ -12,7 +13,7 @@ const frameSrc = (path) =>
     : null
 
 // 1 keyframe trong strip.
-function KeyframeCell({ f, videoUrl }) {
+function KeyframeCell({ f, videoUrl, onSubmit }) {
   const [failed, setFailed] = useState(false)
   const src = frameSrc(f.path)
   const t = f.frame_stamp != null ? Math.floor(f.frame_stamp) : null
@@ -36,13 +37,16 @@ function KeyframeCell({ f, videoUrl }) {
       <div style={{ fontSize: 12, fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 4 }}>
         {f.frame_id}
         {yt && <a href={yt} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
+        {onSubmit && (
+          <IoIosAddCircle title="Nộp frame này" style={{ cursor: 'pointer', color: '#1677ff' }} onClick={() => onSubmit(f)} />
+        )}
       </div>
     </div>
   )
 }
 
 // Strip keyframe cho 1 đoạn ASR: tự fetch theo khoảng frame.
-function SegKeyframes({ videoId, L, V, frameStart, frameEnd }) {
+function SegKeyframes({ videoId, L, V, frameStart, frameEnd, onSubmitFrame }) {
   const [frames, setFrames] = useState(null) // null = loading
   const [truncated, setTruncated] = useState(false)
   const [videoUrl, setVideoUrl] = useState(null)
@@ -72,13 +76,20 @@ function SegKeyframes({ videoId, L, V, frameStart, frameEnd }) {
         {truncated ? ' (showing first ' + frames.length + ')' : ''}
       </div>
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-        {frames.map((f, i) => <KeyframeCell key={i} f={f} videoUrl={videoUrl} />)}
+        {frames.map((f, i) => (
+          <KeyframeCell
+            key={i}
+            f={f}
+            videoUrl={videoUrl}
+            onSubmit={onSubmitFrame ? (fr) => onSubmitFrame({ ...fr, video_id: fr.video_id || videoId, L: fr.L ?? L, V: fr.V ?? V }) : undefined}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-export default function AsrResults({ loading, error, results }) {
+export default function AsrResults({ loading, error, results, onSubmitFrame }) {
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -115,6 +126,7 @@ export default function AsrResults({ loading, error, results }) {
                 V={s.V}
                 frameStart={s.frame_start}
                 frameEnd={s.frame_end}
+                onSubmitFrame={onSubmitFrame}
               />
             </div>
           )

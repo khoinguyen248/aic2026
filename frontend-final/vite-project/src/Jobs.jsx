@@ -1141,6 +1141,12 @@ function Jobs() {
         fps: fps
       }
 
+      // Nhãn video: batch2 (N/S/M hoặc video_id có '-') dùng thẳng video_id; batch1 mới ép K/L theo số.
+      const isBatch2 = /^[NSM]/i.test(String(videoId)) || /^[NSM]/i.test(String(L)) || String(videoId).includes('-')
+      const videoLabel = isBatch2
+        ? (videoId || `${L}${V ? " - V: " + V : ""}`)
+        : `${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""}`
+
       return (
         <div style={{ textAlign: "center" }}>
           {imageUrl ? (
@@ -1156,7 +1162,7 @@ function Jobs() {
             </div>
           )}
           <div>
-            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
+            {`${videoLabel} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
             {url && <a href={`${url}&t=${time}s`} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
           </div>
           {metadataText && (
@@ -1672,7 +1678,17 @@ function Jobs() {
                 }}
               />
             ) : asrActive ? (
-              <AsrResults loading={asrLoading} error={asrError} results={asrResults} />
+              <AsrResults
+                loading={asrLoading}
+                error={asrError}
+                results={asrResults}
+                onSubmitFrame={(f) => {
+                  const t = Number(f.frame_stamp)
+                  const mstime = Number.isFinite(t) ? Math.floor(t * 1000) : (f.fps ? Math.floor((Number(f.frame_id) / Number(f.fps)) * 1000) : 0)
+                  setInf({ video_id: f.video_id, L: f.L, V: f.V, frame_id: f.frame_id, fps: f.fps, mstime })
+                  setAnsflag(true)
+                }}
+              />
             ) : retrival.length > 0 ? (
               <>
                 <div className="result-filter-bar">
