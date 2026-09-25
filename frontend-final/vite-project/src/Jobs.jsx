@@ -1181,6 +1181,7 @@ function Jobs() {
                 setModalFlag(true);
                 setSelectedFrame({
                   idx: item.idx,
+                  frame_id: frame_id,   // khoá bền hơn idx (idx Qdrant ≠ idx Mongo cho N/M/S)
                   L: Number(String(L).replace(/^[KL]/i, '')),
                   V: Number(String(V).replace(/^V/i, '')),
                   video_id: videoId,

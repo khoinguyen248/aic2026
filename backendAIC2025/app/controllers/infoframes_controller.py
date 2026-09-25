@@ -6,6 +6,7 @@ from flask import current_app, jsonify, request
 
 # Dùng lại engine Qdrant singleton của main search (import NHẸ, không kéo faiss/beit3).
 from .qdrant_controller import _get_engine, _model_from_request
+from ..services.mongo_search import get_database
 
 # Số frame lấy mỗi bên của frame gốc.
 NEIGHBORS = 10
@@ -55,6 +56,18 @@ def _scroll_video_points(engine, collection: str, video_id: str):
     return payloads
 
 
+def _scroll_video_from_mongo(video_id):
+    """Fallback khi Qdrant chưa có video: đọc keyframe từ ocr_metadata, dựng lại path
+    'Keyframes/<video_id>/<frame 6 số>.webp' cho khớp frame-server (route /Keyframes)."""
+    proj = {"_id": 0, "idx": 1, "video_id": 1, "L": 1, "V": 1, "frame_id": 1,
+            "keyframe_order": 1, "frame_stamp": 1, "video_url": 1}
+    out = []
+    for d in get_database()["ocr_metadata"].find({"video_id": video_id}, proj):
+        d["path"] = f"Keyframes/{video_id}/{_to_int(d.get('frame_id')):06d}.webp"
+        out.append(d)
+    return out
+
+
 def temporal_frames():
     """Trả về frame gốc kèm ±10 keyframe cùng video (đọc từ Qdrant).
 
@@ -84,10 +97,16 @@ def temporal_frames():
         except ValueError:
             model = "beit3"
 
-        engine = _get_engine()
-        collection = engine.collection_name(model)
-
-        items = _scroll_video_points(engine, collection, video_id)
+        # Ưu tiên Qdrant; lỗi/không có video (N/M/S chưa nạp embedding, hoặc Qdrant đang load) -> fallback Mongo.
+        items = []
+        try:
+            engine = _get_engine()
+            collection = engine.collection_name(model)
+            items = _scroll_video_points(engine, collection, video_id)
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.info("infoframes Qdrant lỗi (%s) -> fallback ocr_metadata", exc)
+        if not items:
+            items = _scroll_video_from_mongo(video_id)
         if not items:
             return jsonify({"ok": False, "error": f"video {video_id} not found"}), 404
 
@@ -99,16 +118,15 @@ def temporal_frames():
         if idx_raw is not None and str(idx_raw) != "":
             idx = _to_int(idx_raw, None)
             target_pos = next((i for i, d in enumerate(items) if _to_int(d.get("idx")) == idx), None)
-            if target_pos is None:
-                return jsonify({"ok": False, "error": f"idx {idx} not found in {video_id}"}), 404
-        elif frame_id_raw is not None and str(frame_id_raw) != "":
+        # idx không khớp (idx Qdrant ≠ idx Mongo cho video N/M/S) -> tra theo frame_id (bền hơn).
+        if target_pos is None and frame_id_raw is not None and str(frame_id_raw) != "":
             frame_id = _to_int(frame_id_raw)
             target_pos = min(
                 range(len(items)),
                 key=lambda i: abs(_to_int(items[i].get("frame_id")) - frame_id),
             )
-        else:
-            return jsonify({"ok": False, "error": "missing idx or frame_id"}), 400
+        if target_pos is None:
+            return jsonify({"ok": False, "error": f"frame not found in {video_id}"}), 404
 
         target_idx = items[target_pos].get("idx")
 
