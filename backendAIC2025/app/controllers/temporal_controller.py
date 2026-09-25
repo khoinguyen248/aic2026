@@ -39,11 +39,23 @@ def _load_video_metadata(l_value: object, v_value: object) -> list[dict]:
 
 
 def temporal_frames():
-    """POST /search/infoframes: trả target và tối đa 10 keyframe mỗi phía."""
+    """POST /search/infoframes: trả target và tối đa 10 keyframe mỗi phía.
+
+    Ưu tiên bản Qdrant (nhận cả idx LẪN frame_id, có path keyframe -> dùng cho TRAKE).
+    Chỉ fallback sang metadata JSON local khi có idx mà bản Qdrant lỗi.
+    """
     data = request.get_json(silent=True) or {}
     print("data", data)
+
+    # TRAKE gửi frame_id (không có idx) -> ủy quyền sang bản Qdrant xử lý cả 2 trường hợp.
     try:
-        if "idx" not in data:
+        from .infoframes_controller import temporal_frames as qdrant_temporal_frames
+        return qdrant_temporal_frames()
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.info("infoframes(Qdrant) lỗi (%s) -> thử metadata JSON local", exc)
+
+    try:
+        if "idx" not in data or str(data.get("idx")) == "":
             raise ValueError("idx is required")
 
         target_idx = int(data["idx"])

@@ -110,13 +110,20 @@ def temporal_frames():
         else:
             return jsonify({"ok": False, "error": "missing idx or frame_id"}), 400
 
-        start = max(0, target_pos - NEIGHBORS)
-        end = min(len(items), target_pos + NEIGHBORS + 1)  # +1 để include frame gốc
-        window = items[start:end]
         target_idx = items[target_pos].get("idx")
 
+        # full=true (hoặc window<=0) -> trả TOÀN BỘ keyframe của video; ngược lại ±window (mặc định 10).
+        full = bool(data.get("full"))
+        win = _to_int(data.get("window"), NEIGHBORS)
+        if full or win <= 0:
+            window = items
+        else:
+            start = max(0, target_pos - win)
+            end = min(len(items), target_pos + win + 1)  # +1 để include frame gốc
+            window = items[start:end]
+
         return jsonify(
-            {"ok": True, "count": len(window), "results": window, "target_idx": target_idx}
+            {"ok": True, "count": len(window), "total": len(items), "results": window, "target_idx": target_idx}
         ), 200
 
     except Exception as e:

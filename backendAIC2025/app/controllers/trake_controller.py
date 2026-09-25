@@ -41,6 +41,7 @@ def trake_search():
         top_m = data.get("top_m")
         top_videos = data.get("top_videos")
         max_combos = data.get("max_combos")
+        max_event_gap_s = data.get("max_event_gap_s")  # None/0/"" -> không giới hạn khoảng cách event
 
         # OCR/ASR theo TỪNG event (tùy chọn): mảng song song với events, "" = không dùng.
         # KHÔNG dịch (OCR/ASR khớp dữ liệu tiếng Việt trong Mongo).
@@ -96,6 +97,7 @@ def trake_search():
             max_combos=int(max_combos) if max_combos else None,
             events_ocr=events_ocr,
             events_asr=events_asr,
+            max_event_gap_s=float(max_event_gap_s) if max_event_gap_s else None,
         )
 
         return jsonify(result), (200 if result.get("ok") else 404)

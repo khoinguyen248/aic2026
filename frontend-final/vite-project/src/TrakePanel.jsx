@@ -1,4 +1,5 @@
 // TrakePanel.jsx — enter N events -> /search/trake -> combo list, frames shown inline
+// (score mỗi frame + nút nudge ±1/±5/±10 để chỉnh tay trước khi nộp; ±10 keyframe strip để verify).
 import { useState } from 'react'
 import { Input, InputNumber, Button, Spin, Tag } from 'antd'
 import { IoIosAddCircle } from 'react-icons/io'
@@ -14,13 +15,28 @@ const fmtTime = (frameId, fps) => {
   return `${m}m${Math.round(s - 60 * m)}s`
 }
 
+const NudgeBar = ({ onNudge }) => (
+  <div style={{ display: 'flex', gap: 3, marginTop: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+    {[-10, -5, -1, 1, 5, 10].map((d) => (
+      <button
+        key={d}
+        onClick={() => onNudge(d)}
+        style={{ fontSize: 11, padding: '1px 5px', border: '1px solid #ddd', borderRadius: 4, background: '#fafafa', cursor: 'pointer' }}
+      >
+        {d > 0 ? `+${d}` : d}
+      </button>
+    ))}
+  </div>
+)
+
 // One frame image cell.
-// Case 2: có path keyframe -> hiện ảnh keyframe (/frames/<path>). Case 1: decode frame gốc từ video.
-function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOpenInfo }) {
+// Case 2: có path keyframe -> hiện ảnh keyframe (/frames/<path>). Frame đã chỉnh tay -> decode video (cần VIDEO_ROOT).
+function FrameCell({ L, V, videoId, frameId, origFrameId, fps, videoUrl, eventIdx, path, score, adjusted, onOpenInfo, onNudge, onReset }) {
   const [failed, setFailed] = useState(false)
   const t = fps ? Math.floor(frameId / fps) : null
   const yt = videoUrl ? `${videoUrl}${videoUrl.includes('?') ? '&' : '?'}t=${t}s` : null
-  const src = path ? `/frames/${String(path).replace(/^\/+/, '')}` : frameUrl(L, V, frameId)
+  // Chưa chỉnh + có keyframe -> ảnh keyframe. Đã chỉnh -> decode frame gốc (404 nếu máy không có video).
+  const src = (!adjusted && path) ? `/frames/${String(path).replace(/^\/+/, '')}` : frameUrl(L, V, frameId)
   return (
     <div style={{ width: 150 }}>
       {failed ? (
@@ -29,9 +45,11 @@ function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOp
         </div>
       ) : (
         <img
+          key={src}
           src={src}
           alt={`frame ${frameId}`}
-          style={{ width: 150, height: 90, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }}
+          loading="lazy"
+          style={{ width: 150, height: 90, objectFit: 'cover', borderRadius: 6, border: adjusted ? '2px solid #fa8c16' : '1px solid #eee' }}
           onError={() => setFailed(true)}
         />
       )}
@@ -41,9 +59,9 @@ function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOp
         {yt && (
           <a href={yt} target="_blank" rel="noopener noreferrer"><CiLink /></a>
         )}
-        {/* Xem 10 frame trước + 10 frame sau của frame này */}
+        {/* Xem ±10 keyframe quanh frame này */}
         <FaFolderOpen
-          title="Xem ±10 frame"
+          title="Xem ±10 keyframe"
           style={{ cursor: 'pointer', color: '#1677ff' }}
           onClick={() => onOpenInfo({ L, V, video_id: videoId, frame_id: frameId })}
         />
@@ -51,6 +69,18 @@ function FrameCell({ L, V, videoId, frameId, fps, videoUrl, eventIdx, path, onOp
       <div style={{ fontSize: 12, color: '#aaa' }}>
         {fmtTime(frameId, fps)}{fps != null ? ` · fps ${fps}` : ''}
       </div>
+      <div style={{ fontSize: 12, color: adjusted ? '#fa8c16' : '#52c41a' }}>
+        {adjusted ? `đã chỉnh (gốc ${origFrameId})` : (score != null ? `score ${score}` : '')}
+      </div>
+      <NudgeBar onNudge={onNudge} />
+      {adjusted && (
+        <button
+          onClick={onReset}
+          style={{ fontSize: 11, marginTop: 3, padding: '1px 6px', border: '1px solid #eee', borderRadius: 4, background: '#fff', cursor: 'pointer' }}
+        >
+          ↺ về gốc
+        </button>
+      )}
     </div>
   )
 }
@@ -63,7 +93,30 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
   const [result, setResult] = useState(null)
   const [maxCombos, setMaxCombos] = useState(100) // số tổ hợp hiển thị (trần 500)
   const [topVideos, setTopVideos] = useState(2)   // số video xét ở tầng 1 (nhiều -> nhiều L hơn)
+  const [maxGapS, setMaxGapS] = useState('')      // giới hạn khoảng cách 2 event (giây); trống = không giới hạn
   const [infoFrame, setInfoFrame] = useState(null) // frame đang xem ±10 ({L, V, frame_id}) | null
+  const [frameAdj, setFrameAdj] = useState({})     // key `${vi}-${ci}-${ei}` -> frame_id đã chỉnh tay
+
+  const keyOf = (vi, ci, ei) => `${vi}-${ci}-${ei}`
+  const curFrame = (vi, ci, ei, orig) => {
+    const v = frameAdj[keyOf(vi, ci, ei)]
+    return v == null ? orig : v
+  }
+  const nudge = (vi, ci, ei, orig, delta) => setFrameAdj((prev) => {
+    const k = keyOf(vi, ci, ei)
+    const base = prev[k] == null ? orig : prev[k]
+    return { ...prev, [k]: Math.max(0, base + delta) }
+  })
+  const resetFrame = (vi, ci, ei) => setFrameAdj((prev) => {
+    const n = { ...prev }
+    delete n[keyOf(vi, ci, ei)]
+    return n
+  })
+  const scoreOf = (vid, ei, origFrame) => {
+    const list = vid.event_candidates?.[ei] || []
+    const hit = list.find((c) => Number(c.frame_id) === Number(origFrame))
+    return hit ? hit.score : null
+  }
 
   const setField = (i, field, val) =>
     setEvents(prev => prev.map((e, idx) => (idx === i ? { ...e, [field]: val } : e)))
@@ -78,12 +131,14 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
       events: picked.map(e => e.q.trim()), language, model,
       max_combos: maxCombos, top_videos: topVideos,
     }
+    // Giới hạn khoảng cách 2 event (giây) — chỉ gửi khi người dùng nhập; trống = không giới hạn.
+    if (maxGapS) payload.max_event_gap_s = Number(maxGapS)
     // OCR/ASR đi song song với events đã lọc (map theo event). Chỉ gửi khi có ít nhất 1 ô.
     const ocr = picked.map(e => (e.ocr || '').trim())
     const asr = picked.map(e => (e.asr || '').trim())
     if (ocr.some(Boolean)) payload.events_ocr = ocr
     if (asr.some(Boolean)) payload.events_asr = asr
-    setError(''); setLoading(true); setResult(null)
+    setError(''); setLoading(true); setResult(null); setFrameAdj({})
     try {
       const resp = await trakeSearch(payload)
       if (!resp.data?.ok) { setError(resp.data?.error || 'Search failed'); }
@@ -142,7 +197,10 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
         <span style={{ fontSize: 12, color: '#666' }}>videos</span>
         <InputNumber size="small" min={1} max={20} value={topVideos}
           onChange={(v) => setTopVideos(v || 2)} style={{ width: 64 }} />
-        <span style={{ fontSize: 11, color: '#aaa' }}>(more videos = more variety)</span>
+        <span style={{ fontSize: 12, color: '#666' }}>max gap (s)</span>
+        <InputNumber size="small" min={1} value={maxGapS === '' ? null : maxGapS}
+          onChange={(v) => setMaxGapS(v == null ? '' : v)} placeholder="∞" style={{ width: 80 }} />
+        <span style={{ fontSize: 11, color: '#aaa' }}>(trống = không giới hạn khoảng cách event)</span>
       </div>
 
       {error && <div style={{ color: '#d4380d', marginTop: 12 }}>{error}</div>}
@@ -175,40 +233,51 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
                 </span>
               </div>
 
-              {(vid.combos || []).map((combo, ci) => (
-                <div key={ci} style={{ border: '1px solid #eee', borderRadius: 8, marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
-                    <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
-                    <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
-                    <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {combo.join(', ')}</span>
-                    <Button
-                      size="small"
-                      type="primary"
-                      style={{ marginLeft: 'auto' }}
-                      onClick={() => onSubmitCombo?.({ videoId: vid.video_id, frameIds: combo })}
-                    >
-                      Nộp combo
-                    </Button>
+              {(vid.combos || []).map((combo, ci) => {
+                const curCombo = combo.map((fid, ei) => curFrame(vi, ci, ei, fid))
+                return (
+                  <div key={ci} style={{ border: '1px solid #eee', borderRadius: 8, marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px' }}>
+                      <span style={{ color: '#bbb', width: 28, fontSize: 12 }}>#{ci + 1}</span>
+                      <span style={{ fontWeight: 600 }}>{vid.video_id}</span>
+                      <span style={{ color: '#555', fontFamily: 'monospace' }}>→ {curCombo.join(', ')}</span>
+                      <Button
+                        size="small"
+                        type="primary"
+                        style={{ marginLeft: 'auto' }}
+                        onClick={() => onSubmitCombo?.({ videoId: vid.video_id, frameIds: curCombo })}
+                      >
+                        Nộp combo
+                      </Button>
+                    </div>
+                    {/* Hiện frame ngay, không cần bấm để xổ */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '4px 12px 12px' }}>
+                      {combo.map((fid, ei) => {
+                        const cur = curFrame(vi, ci, ei, fid)
+                        return (
+                          <FrameCell
+                            key={ei}
+                            L={vid.L}
+                            V={vid.V}
+                            videoId={vid.video_id}
+                            frameId={cur}
+                            origFrameId={fid}
+                            adjusted={cur !== fid}
+                            fps={vid.fps}
+                            videoUrl={vid.video_url}
+                            eventIdx={ei}
+                            path={vid.frame_paths?.[String(fid)]}
+                            score={scoreOf(vid, ei, fid)}
+                            onOpenInfo={setInfoFrame}
+                            onNudge={(d) => nudge(vi, ci, ei, fid, d)}
+                            onReset={() => resetFrame(vi, ci, ei)}
+                          />
+                        )
+                      })}
+                    </div>
                   </div>
-                  {/* Hiện frame ngay, không cần bấm để xổ */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '4px 12px 12px' }}>
-                    {combo.map((fid, ei) => (
-                      <FrameCell
-                        key={ei}
-                        L={vid.L}
-                        V={vid.V}
-                        videoId={vid.video_id}
-                        frameId={fid}
-                        fps={vid.fps}
-                        videoUrl={vid.video_url}
-                        eventIdx={ei}
-                        path={vid.frame_paths?.[String(fid)]}
-                        onOpenInfo={setInfoFrame}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ))}
         </div>

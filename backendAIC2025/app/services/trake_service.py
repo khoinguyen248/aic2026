@@ -29,17 +29,17 @@ logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
 
-# Khoảng cách tối đa giữa 2 event LIÊN TIẾP: 10 giây (~300 frame @30fps, ~250 frame @25fps).
-_MAX_EVENT_GAP_SECONDS = 10.0
 
-
-def _max_event_gap_frames(fps):
-    """Số frame tối đa cho phép giữa 2 event liên tiếp, suy từ fps của video (None nếu fps không hợp lệ)."""
+def _max_event_gap_frames(fps, seconds):
+    """Số frame tối đa giữa 2 event liên tiếp, suy từ fps + số giây người dùng nhập.
+    seconds rỗng/None/<=0 -> None = KHÔNG giới hạn (mặc định)."""
+    if not seconds or float(seconds) <= 0:
+        return None
     try:
         f = float(fps)
     except (TypeError, ValueError):
         return None
-    return round(f * _MAX_EVENT_GAP_SECONDS) if f > 0 else None
+    return round(f * float(seconds)) if f > 0 else None
 
 _qwen_model = None
 _qwen_processor = None
@@ -736,7 +736,7 @@ def _apply_ocr_asr_boost(cands, ocr_fids, asr_ranges, boost, window, path_map=No
 # ---------------------------------------------------------------------------
 
 def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combos=None,
-              events_ocr=None, events_asr=None):
+              events_ocr=None, events_asr=None, max_event_gap_s=None):
     top_videos = top_videos or Config.TRAKE_TOP_VIDEOS
     # top_m (số ứng viên tầng 1) tự nới theo số video muốn xem -> nhiều video đủ 3 event để DP hơn.
     top_m = max(top_m or Config.TRAKE_TOP_M, top_videos * 100)
@@ -859,8 +859,20 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         combos = build_cartesian_submissions(
             candidates_per_event,
             max_combos=slot_count,
-            max_gap=_max_event_gap_frames(video.get("fps")),
+            max_gap=_max_event_gap_frames(video.get("fps"), max_event_gap_s),
         )
+        # Ứng viên từng event (score + path keyframe) -> UI hiện điểm tương đồng + verify tay.
+        event_candidates = []
+        for cands in candidates_per_event:
+            pairs = sorted(_cand_pairs(cands), key=lambda x: -x[1])[:15]
+            event_candidates.append([
+                {
+                    "frame_id": fid,
+                    "score": round(float(sc), 4),
+                    "path": (None if use_tier3 else coarse_path_map.get(fid)),
+                }
+                for fid, sc in pairs
+            ])
         per_video.append(
             {
                 "video_id": vid,
@@ -873,6 +885,7 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
                 "qwen_rerank_used_events": qwen_used,
                 "ocr_asr_boosted_frames": oa_hits,
                 "combos": combos,
+                "event_candidates": event_candidates,
                 # Case 2: {frame_id: path keyframe} để UI hiện ảnh; Case 1 frame tinh chỉnh không có -> UI decode video.
                 "frame_paths": {} if use_tier3 else {str(k): v for k, v in coarse_path_map.items()},
             }
