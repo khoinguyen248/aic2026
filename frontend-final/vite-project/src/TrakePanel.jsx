@@ -283,11 +283,13 @@ export default function TrakePanel({ language = false, model = 'beit3', onSubmit
         </div>
       )}
 
-      {/* Modal ±10 frame quanh frame được chọn (tái dùng từ search results) */}
+      {/* Modal ±10 / toàn bộ keyframe — chọn frame theo event rồi nộp combo */}
       {infoFrame && (
         <Infor
           setModalFlag={() => setInfoFrame(null)}
           selectedFrame={infoFrame}
+          trakeEvents={events.length}
+          onSubmitCombo={(frameIds) => onSubmitCombo?.({ videoId: infoFrame?.video_id, frameIds })}
         />
       )}
     </div>

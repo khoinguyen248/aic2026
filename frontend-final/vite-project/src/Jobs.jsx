@@ -1777,8 +1777,11 @@ function Jobs() {
       {mondalFLag && (
         <Infor
           setModalFlag={setModalFlag}
-
           selectedFrame={selectedFrame}
+          onSubmitSingle={(draft) => {
+            setInf(draft)
+            setAnsflag(true)
+          }}
         />
       )}
       {ytflag && (
