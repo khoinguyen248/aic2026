@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 
 NEG_INF = float("-inf")
 
+# Khoảng cách tối đa giữa 2 event LIÊN TIẾP: 10 giây (~300 frame @30fps, ~250 frame @25fps).
+_MAX_EVENT_GAP_SECONDS = 10.0
+
+
+def _max_event_gap_frames(fps):
+    """Số frame tối đa cho phép giữa 2 event liên tiếp, suy từ fps của video (None nếu fps không hợp lệ)."""
+    try:
+        f = float(fps)
+    except (TypeError, ValueError):
+        return None
+    return round(f * _MAX_EVENT_GAP_SECONDS) if f > 0 else None
+
 _qwen_model = None
 _qwen_processor = None
 _qwen_lock = threading.Lock()
@@ -68,8 +80,14 @@ def softmax_probs(scores):
 # ---------------------------------------------------------------------------
 
 def encode_events(events_text, engine, model):
-    """Encode mỗi event -> vector (np.float32, đã L2-normalize) bằng ModelRegistry của teammate."""
-    return [np.asarray(engine.registry.encode_text(t, model), dtype=np.float32) for t in events_text]
+    """Encode mỗi event -> vector (np.float32, L2-normalize). Event rỗng (chỉ OCR/ASR) -> None."""
+    out = []
+    for t in events_text:
+        if t and str(t).strip():
+            out.append(np.asarray(engine.registry.encode_text(t, model), dtype=np.float32))
+        else:
+            out.append(None)
+    return out
 
 
 def _qdrant_query(engine, model, vector, limit, video_id=None, frame_gt=None):
@@ -135,13 +153,16 @@ def _dp_align(events_sorted):
 
 
 def select_video_dp(event_vecs, engine, model, top_m=150, top_videos=2):
-    """Tầng 1: mỗi event query top-M (toàn collection), gom theo video_id, DP theo frame_id."""
-    per_event_hits = [_qdrant_query(engine, model, v, top_m) for v in event_vecs]
+    """Tầng 1: DP trên các event CÓ vector hình ảnh (bỏ event chỉ OCR/ASR = vector None).
+    Không event hình ảnh nào -> trả rỗng (để ocr_asr_candidate_videos lo tầng 1)."""
+    visual_js = [j for j, v in enumerate(event_vecs) if v is not None]
+    if not visual_js:
+        return []
+    per_event_hits = {j: _qdrant_query(engine, model, event_vecs[j], top_m) for j in visual_js}
 
     per_video = {}
-    n = len(event_vecs)
-    for j, hits in enumerate(per_event_hits):
-        for h in hits:
+    for j in visual_js:
+        for h in per_event_hits[j]:
             vid = h.get("video_id")
             fid = h.get("frame_id")
             if vid is None or fid is None:
@@ -152,9 +173,9 @@ def select_video_dp(event_vecs, engine, model, top_m=150, top_videos=2):
     results = []
     for vid, data in per_video.items():
         evs = data["events"]
-        if len(evs) < n:  # thiếu event -> không đủ bằng chứng để DP công bằng
+        if len(evs) < len(visual_js):  # thiếu event hình ảnh nào -> loại
             continue
-        events_sorted = [sorted(evs[j], key=lambda t: t[0]) for j in range(n)]
+        events_sorted = [sorted(evs[j], key=lambda t: t[0]) for j in visual_js]
         best, _path = _dp_align(events_sorted)
         if best == NEG_INF:
             continue
@@ -185,8 +206,9 @@ def allocate_video_slots(video_candidates, total_slots=100, confidence_threshold
     has_oa = any(v.get("from_ocr_asr") for v in video_candidates)
     probs = softmax_probs([v["score"] for v in video_candidates])
 
-    # Chắc chắn (top-1 vượt ngưỡng) VÀ không có bảo chứng OCR/ASR -> dồn hết cho top-1 (hành vi cũ).
-    if probs[0] >= confidence_threshold and not has_oa:
+    # Chắc chắn (top-1 vượt ngưỡng) VÀ không có bảo chứng OCR/ASR VÀ chỉ có <=2 video ứng viên
+    # -> dồn hết cho top-1 (hành vi mặc định). Khi user xin nhiều video hơn (khám phá) -> luôn chia đều.
+    if probs[0] >= confidence_threshold and not has_oa and len(video_candidates) <= 2:
         return [(video_candidates[0], total_slots)]
 
     # Ngược lại: chia theo prob nhưng mỗi video có sàn để không biến mất.
@@ -276,24 +298,64 @@ def ocr_asr_candidate_videos(events_ocr, events_asr, engine, model, max_videos=4
 # Tầng 2 — định vị từng event trong video đã chọn (Qdrant filter video_id + frame_id>prev).
 # ---------------------------------------------------------------------------
 
-def locate_events_exact(event_vecs, engine, model, video_id, topk=3):
-    """Trả (results, path_map). results: mỗi event 1 dict center_frame_id + cands [(frame_id, score)].
-    path_map: {frame_id: path keyframe} — để Case 2 render ảnh keyframe trực tiếp (không cần video)."""
+def _ocr_asr_frames_for_event(ocr_text, asr_text, video_id, frame_gt, topk):
+    """Ứng viên [(frame_id, score, path)] cho event CHỈ có OCR/ASR (không mô tả hình).
+    OCR: keyframe khớp chữ (điểm theo thứ hạng). ASR: keyframe trong khoảng lời nói. Ép frame_id>frame_gt."""
+    try:
+        from .mongo_search import ocr_frame_ids_in_video, asr_ranges_in_video, keyframes_in_range
+    except Exception:
+        return []
+    scored = {}  # frame_id -> [score, path]
+    if ocr_text and ocr_text.strip():
+        try:
+            for rank, (fid, path) in enumerate(ocr_frame_ids_in_video(ocr_text.strip(), video_id, limit=30)):
+                fid = int(fid)
+                s = 1.0 - rank * 0.02
+                if fid not in scored or s > scored[fid][0]:
+                    scored[fid] = [s, path]
+        except Exception:
+            pass
+    if asr_text and asr_text.strip():
+        try:
+            for s0, e0 in asr_ranges_in_video(asr_text.strip(), video_id, limit=10):
+                for fid, path in keyframes_in_range(video_id, s0, e0, limit=30):
+                    fid = int(fid)
+                    scored.setdefault(fid, [0.9, path])
+        except Exception:
+            pass
+    items = [(fid, sc, path) for fid, (sc, path) in scored.items() if frame_gt is None or fid > frame_gt]
+    if not items:  # rỗng sau ràng buộc -> nới
+        items = [(fid, sc, path) for fid, (sc, path) in scored.items()]
+    items.sort(key=lambda t: -t[1])
+    return items[:topk]
+
+
+def locate_events_exact(event_vecs, engine, model, video_id, topk=3, events_ocr=None, events_asr=None):
+    """Trả (results, path_map). Event có vector hình ảnh -> query Qdrant; event chỉ OCR/ASR -> ứng viên từ Mongo.
+    path_map: {frame_id: path keyframe} để Case 2 render ảnh."""
     results = []
     path_map = {}
     prev = None
-    for v in event_vecs:
-        hits = _qdrant_query(engine, model, v, topk, video_id=video_id, frame_gt=prev)
-        if not hits:  # hết frame sau prev -> nới ràng buộc để không rỗng
-            hits = _qdrant_query(engine, model, v, topk, video_id=video_id)
+    for j, v in enumerate(event_vecs):
         cands = []
-        for h in hits:
-            if h.get("frame_id") is None:
-                continue
-            fid = int(h["frame_id"])
-            cands.append((fid, float(h["score"])))
-            if h.get("path"):
-                path_map[fid] = h["path"]
+        if v is not None:
+            hits = _qdrant_query(engine, model, v, topk, video_id=video_id, frame_gt=prev)
+            if not hits:  # hết frame sau prev -> nới ràng buộc để không rỗng
+                hits = _qdrant_query(engine, model, v, topk, video_id=video_id)
+            for h in hits:
+                if h.get("frame_id") is None:
+                    continue
+                fid = int(h["frame_id"])
+                cands.append((fid, float(h["score"])))
+                if h.get("path"):
+                    path_map[fid] = h["path"]
+        else:  # event chỉ OCR/ASR
+            oc = events_ocr[j] if events_ocr and j < len(events_ocr) else ""
+            ar = events_asr[j] if events_asr and j < len(events_asr) else ""
+            for fid, sc, path in _ocr_asr_frames_for_event(oc, ar, video_id, prev, topk):
+                cands.append((int(fid), float(sc)))
+                if path:
+                    path_map[int(fid)] = path
         if not cands:
             results.append({"center_frame_id": None, "cands": []})
             continue
@@ -357,22 +419,49 @@ def _load_qwen():
             return None, None
         try:
             import torch
-            from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+            from transformers import AutoProcessor
+
+            # Class generic đổi tên theo version: transformers 5.x = AutoModelForImageTextToText,
+            # 4.x = AutoModelForVision2Seq. Fallback về class Qwen cụ thể nếu thiếu.
+            _AutoVLM = None
+            for _cls in ("AutoModelForImageTextToText", "AutoModelForVision2Seq"):
+                try:
+                    _AutoVLM = getattr(__import__("transformers", fromlist=[_cls]), _cls)
+                    break
+                except Exception:
+                    continue
 
             quant = (Config.QWEN_QUANTIZATION or "none").lower()
             kwargs = {"torch_dtype": "auto", "device_map": Config.QWEN_DEVICE_MAP}
             if quant in ("4bit", "8bit"):
+                # bitsandbytes CHỈ chạy trên CUDA. Máy CPU-only -> để QWEN_QUANTIZATION=none.
                 from transformers import BitsAndBytesConfig
 
                 if quant == "4bit":
+                    # GPU cũ (Turing/GTX 16xx) KHÔNG có bf16 -> tự chọn fp16, tránh lỗi/chậm.
+                    compute_dtype = (
+                        torch.bfloat16
+                        if (torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+                        else torch.float16
+                    )
                     kwargs["quantization_config"] = BitsAndBytesConfig(
                         load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                        bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+                        bnb_4bit_compute_dtype=compute_dtype, bnb_4bit_use_double_quant=True,
                     )
                 else:
                     kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
-            logger.info("Loading Qwen2.5-VL local: %s (quant=%s)...", Config.QWEN_MODEL_PATH, quant)
-            _qwen_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(Config.QWEN_MODEL_PATH, **kwargs)
+            logger.info("Loading Qwen-VL local: %s (quant=%s)...", Config.QWEN_MODEL_PATH, quant)
+            if _AutoVLM is not None:
+                # Auto class tự chọn đúng (Qwen2-VL-2B, Qwen2.5-VL-3B/7B...).
+                _qwen_model = _AutoVLM.from_pretrained(Config.QWEN_MODEL_PATH, **kwargs)
+            else:
+                # Fallback: chọn class theo tên model.
+                mp = (Config.QWEN_MODEL_PATH or "").lower()
+                if "qwen2.5-vl" in mp or "qwen2_5_vl" in mp:
+                    from transformers import Qwen2_5_VLForConditionalGeneration as _C
+                else:
+                    from transformers import Qwen2VLForConditionalGeneration as _C
+                _qwen_model = _C.from_pretrained(Config.QWEN_MODEL_PATH, **kwargs)
             _qwen_model.eval()
             _qwen_processor = AutoProcessor.from_pretrained(Config.QWEN_MODEL_PATH)
         except Exception as e:
@@ -415,6 +504,50 @@ def qwen_rerank_candidates(frame_ids, frames_pil, event_text):
     except Exception as e:
         logger.warning("Qwen rerank lỗi (%s) -> fallback thuật toán", e)
     return None
+
+
+def _keyframe_disk_path(payload_path, keyframes_root):
+    """'Keyframes/L21_V001/000000.webp' -> <keyframes_root>/L21_V001/000000.webp (đĩa lưu theo video_id)."""
+    if not payload_path:
+        return None
+    p = str(payload_path).replace("\\", "/").lstrip("/")
+    for pref in ("Keyframes/", "keyframes/"):
+        if p.startswith(pref):
+            p = p[len(pref):]
+            break
+    return os.path.join(keyframes_root, p)
+
+
+def qwen_rerank_tier2(candidates_per_event, path_map, events_text, keyframes_root, tie_margin, max_imgs=3):
+    """Tầng 2 (Case 2, KHÔNG cần video): khi top-2 ứng viên của 1 event gần tie -> đưa ảnh keyframe
+    cho Qwen chọn frame khớp mô tả nhất. Thuật toán (visual sort) lo thứ tự, Qwen phân xử ties.
+    Trả (candidates_per_event mới, số event đã dùng Qwen)."""
+    used = 0
+    out = []
+    for cands, ev_text in zip(candidates_per_event, events_text):
+        if len(cands) < 2 or not ev_text or abs(cands[0][1] - cands[1][1]) >= tie_margin:
+            out.append(cands)
+            continue
+        tie = cands[:max_imgs]
+        imgs, ids = [], []
+        for fid, _ in tie:
+            disk = _keyframe_disk_path(path_map.get(int(fid)) or path_map.get(fid), keyframes_root)
+            if disk and os.path.isfile(disk):
+                try:
+                    imgs.append(Image.open(disk).convert("RGB"))
+                    ids.append(int(fid))
+                except Exception:
+                    continue
+        if len(imgs) < 2:
+            out.append(cands)
+            continue
+        picked = qwen_rerank_candidates(ids, imgs, ev_text)
+        if picked is not None:
+            out.append([(picked, cands[0][1])] + [c for c in cands if c[0] != picked])
+            used += 1
+        else:
+            out.append(cands)
+    return out, used
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +644,8 @@ def nms_candidates(candidates, min_gap=15):
     return kept
 
 
-def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15):
+def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15, max_gap=None):
+    """max_gap: khoảng cách frame tối đa giữa 2 event liên tiếp (None = không giới hạn)."""
     cleaned = []
     for cands in candidates_per_event:
         cands_sorted = nms_candidates(sorted(cands, key=lambda c: -c[1]), min_gap=min_gap)
@@ -523,7 +657,12 @@ def build_cartesian_submissions(candidates_per_event, max_combos=100, min_gap=15
     weighted = []
     for combo in product(*cleaned):
         fids = [c[0] for c in combo]
-        if all(fids[i] < fids[i + 1] for i in range(len(fids) - 1)):
+        # Bắt buộc tăng dần theo thời gian, VÀ mỗi bước không vượt max_gap frame.
+        ok_order = all(fids[i] < fids[i + 1] for i in range(len(fids) - 1))
+        ok_gap = max_gap is None or all(
+            fids[i + 1] - fids[i] <= max_gap for i in range(len(fids) - 1)
+        )
+        if ok_order and ok_gap:
             weighted.append((fids, prod(p for _, p in combo)))
     weighted.sort(key=lambda x: -x[1])
     return [c[0] for c in weighted[:max_combos]]
@@ -598,9 +737,10 @@ def _apply_ocr_asr_boost(cands, ocr_fids, asr_ranges, boost, window, path_map=No
 
 def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combos=None,
               events_ocr=None, events_asr=None):
-    top_m = top_m or Config.TRAKE_TOP_M
     top_videos = top_videos or Config.TRAKE_TOP_VIDEOS
-    max_combos = min(max_combos or Config.TRAKE_MAX_COMBOS, 100)
+    # top_m (số ứng viên tầng 1) tự nới theo số video muốn xem -> nhiều video đủ 3 event để DP hơn.
+    top_m = max(top_m or Config.TRAKE_TOP_M, top_videos * 100)
+    max_combos = min(max_combos or Config.TRAKE_MAX_COMBOS, Config.TRAKE_MAX_COMBOS_HARD)
     radius = Config.TRAKE_TIER3_RADIUS
     stride = Config.TRAKE_TIER3_STRIDE
     conf_thr = Config.TRAKE_VIDEO_CONFIDENCE_THRESHOLD
@@ -651,7 +791,10 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         if slot_count <= 0:
             continue
         vid = video["video_id"]
-        coarse, coarse_path_map = locate_events_exact(event_vecs, engine, model, vid, topk=tier3_topk)
+        coarse, coarse_path_map = locate_events_exact(
+            event_vecs, engine, model, vid, topk=tier3_topk,
+            events_ocr=events_ocr, events_asr=events_asr,
+        )
         if not coarse or all(not c["cands"] for c in coarse):
             continue
 
@@ -663,10 +806,13 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         if use_tier3:
             prev_fine = None
             for ev_vec, ev_text, ev_res in zip(event_vecs, events_text, coarse):
-                fine, uq = refine_event_fine(
-                    video_path, ev_vec, ev_text, engine, model, ev_res["center_frame_id"],
-                    prev_fine, radius, stride, tier3_topk,
-                )
+                if ev_vec is None:  # event chỉ OCR/ASR: không tinh chỉnh bằng video, giữ ứng viên coarse
+                    fine, uq = None, False
+                else:
+                    fine, uq = refine_event_fine(
+                        video_path, ev_vec, ev_text, engine, model, ev_res["center_frame_id"],
+                        prev_fine, radius, stride, tier3_topk,
+                    )
                 if fine is None:
                     fine = _cand_pairs(ev_res["cands"])
                 if uq:
@@ -680,7 +826,6 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
                 candidates_per_event.append(_cand_pairs(ev_res["cands"]))
 
         any_tier3 = any_tier3 or use_tier3
-        qwen_used_total += qwen_used
 
         # Boost mềm + inject theo event: frame khớp OCR/ASR (trong video này) được nhân điểm / thêm vào.
         oa_targets = _event_ocr_asr_targets(events_ocr, events_asr, vid, len(events_text))
@@ -701,7 +846,21 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
                 for fid, path in opaths.items():
                     coarse_path_map.setdefault(fid, path)
 
-        combos = build_cartesian_submissions(candidates_per_event, max_combos=slot_count)
+        # Tầng 2 + Qwen (Case 2, không cần video): phân xử ties bằng ảnh keyframe.
+        if not use_tier3 and qwen_ready:
+            candidates_per_event, qn2 = qwen_rerank_tier2(
+                candidates_per_event, coarse_path_map, events_text,
+                Config.KEYFRAMES_PATH, Config.TRAKE_RERANK_TIE_MARGIN,
+            )
+            qwen_used += qn2
+
+        qwen_used_total += qwen_used
+
+        combos = build_cartesian_submissions(
+            candidates_per_event,
+            max_combos=slot_count,
+            max_gap=_max_event_gap_frames(video.get("fps")),
+        )
         per_video.append(
             {
                 "video_id": vid,

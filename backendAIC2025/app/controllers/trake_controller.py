@@ -62,9 +62,13 @@ def trake_search():
         events_text = events
         if language:
             try:
-                from deep_translator import GoogleTranslator
+                # GoogleTranslator (deep_translator) scrape translate.google.com và bị Google
+                # chặn (TooManyRequests) từ IP server -> dùng MyMemoryTranslator như qdrant_controller.
+                from deep_translator import MyMemoryTranslator
 
-                events_text = [GoogleTranslator(source="vi", target="en").translate(e) for e in events]
+                events_text = [
+                    MyMemoryTranslator(source="vi-VN", target="en-US").translate(e) for e in events
+                ]
             except Exception as e:  # thiếu package / mạng lỗi -> dùng nguyên văn, không làm hỏng search
                 current_app.logger.warning("TRAKE translate thất bại, dùng text gốc: %s", e)
                 events_text = events
