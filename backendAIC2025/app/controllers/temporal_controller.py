@@ -19,11 +19,20 @@ def _number(value: object, prefix: str, width: int | None = None) -> str:
     return f"{number:0{width}d}" if width else str(number)
 
 
-def _load_video_metadata(l_value: object, v_value: object) -> list[dict]:
-    l_number = _number(l_value, "L")
-    v_number = _number(v_value, "V", width=3)
+def _load_video_metadata(video_id: object, l_value: object, v_value: object) -> list[dict]:
     metadata_root = Path(current_app.config["METADATA_ROOT"])
-    path = metadata_root / f"L{l_number}_V{v_number}.json"
+
+    # Tên file metadata luôn trùng khớp video_id (vd 'N078-V002.json', 'M01_V001.json') ->
+    # ưu tiên video_id thật thay vì đoán lại chữ nhóm, vì dataset có nhiều chữ nhóm
+    # (K/L/M/N/S...) chứ không chỉ 'L', và số một mình (vd '01') không đủ để phân biệt chúng.
+    vid = str(video_id or "").strip().upper()
+    if not vid:
+        # Fallback cho caller cũ chỉ gửi L/V rời: chỉ đúng với nhóm L lịch sử.
+        l_number = _number(l_value, "L")
+        v_number = _number(v_value, "V", width=3)
+        vid = f"L{l_number}_V{v_number}"
+
+    path = metadata_root / f"{vid}.json"
 
     if not path.is_file():
         raise FileNotFoundError(f"Metadata file not found: {path.name}")
@@ -49,7 +58,7 @@ def temporal_frames():
         target_idx = int(data["idx"])
         print("target_idx", target_idx)
         window = max(1, min(int(data.get("window", 10)), 100))
-        items = _load_video_metadata(data.get("L"), data.get("V"))
+        items = _load_video_metadata(data.get("video_id"), data.get("L"), data.get("V"))
         target_position = next(
             (position for position, item in enumerate(items) if int(item.get("idx", -1)) == target_idx),
             None,

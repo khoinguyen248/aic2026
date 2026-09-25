@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
@@ -15,12 +15,20 @@ import {
 } from 'antd'
 import {
   DEFAULT_DRES_URL,
+  classifyDresResponse,
   describeDresError,
   listDresEvaluations,
   loginToDres,
   submitToDres,
 } from './dresApi'
+import SubmissionFireworks from './ResponseEffects.jsx'
 import './SubmissionModal.css'
+
+const RESPONSE_BANNER = {
+  correct: { text: '🎉 Chính xác! DRES đã ghi nhận.', color: '#52c41a' },
+  wrong: { text: '❌ Sai rồi, kiểm tra lại và thử lần khác.', color: '#ff4d4f' },
+  warning: { text: '⚠️ DRES phản hồi chưa rõ ràng, hãy kiểm tra kỹ.', color: '#faad14' },
+}
 
 const { Text, Title } = Typography
 
@@ -87,6 +95,11 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
   const [connecting, setConnecting] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [lastResponse, setLastResponse] = useState(null)
+  const [fireworksKey, setFireworksKey] = useState(0)
+  const [fireworksActive, setFireworksActive] = useState(false)
+
+  const responseKind = useMemo(() => classifyDresResponse(lastResponse), [lastResponse])
+  const handleFireworksDone = useCallback(() => setFireworksActive(false), [])
 
   useEffect(() => {
     if (!open) return
@@ -117,7 +130,7 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
     if (!baseUrl.trim()) return 'Thiếu địa chỉ DRES.'
     if (!sessionId.trim()) return 'Thiếu sessionId.'
     if (!evaluationId.trim()) return 'Thiếu evaluationID.'
-    if (!/^[KL]\d+_V\d+$/i.test(videoId.trim())) return 'VIDEO_ID phải có dạng K01_V001 hoặc L21_V001.'
+    if (!videoId.trim()) return 'Thiếu VIDEO_ID.'
     if ((taskType === 'kis' || taskType === 'qa') && (!Number.isFinite(Number(timeMs)) || Number(timeMs) < 0)) {
       return 'TIME(ms) phải là số nguyên không âm.'
     }
@@ -189,12 +202,22 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
         sessionId: sessionId.trim(),
         payload,
       })
-      setLastResponse(data ?? { ok: true })
-      message.success('DRES đã nhận bài nộp.')
+      const result = data ?? { ok: true }
+      setLastResponse(result)
+      const kind = classifyDresResponse(result)
+      if (kind === 'correct') {
+        setFireworksKey((key) => key + 1)
+        setFireworksActive(true)
+        message.success(RESPONSE_BANNER.correct.text)
+      } else if (kind === 'wrong') {
+        message.error(RESPONSE_BANNER.wrong.text)
+      } else {
+        message.warning(RESPONSE_BANNER.warning.text)
+      }
     } catch (error) {
       const detail = describeDresError(error)
       setLastResponse({ error: detail })
-      message.error(detail)
+      message.warning(detail)
     } finally {
       setSubmitting(false)
     }
@@ -250,20 +273,26 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
   )
 
   return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      width={760}
-      destroyOnHidden
-      footer={[
-        <Button key="copy" onClick={copyPayload}>Sao chép JSON</Button>,
-        <Button key="close" onClick={onClose}>Đóng</Button>,
-        <Button key="submit" type="primary" danger loading={submitting} onClick={confirmSubmit}>
-          Nộp lên DRES
-        </Button>,
-      ]}
-      title="Nộp bài AI Challenge 2026"
-    >
+    <>
+      <SubmissionFireworks
+        key={fireworksKey}
+        active={fireworksActive}
+        onDone={handleFireworksDone}
+      />
+      <Modal
+        open={open}
+        onCancel={onClose}
+        width={760}
+        destroyOnHidden
+        footer={[
+          <Button key="copy" onClick={copyPayload}>Sao chép JSON</Button>,
+          <Button key="close" onClick={onClose}>Đóng</Button>,
+          <Button key="submit" type="primary" danger loading={submitting} onClick={confirmSubmit}>
+            Nộp lên DRES
+          </Button>,
+        ]}
+        title="Nộp bài AI Challenge 2026"
+      >
       <div className="submission-modal-body">
         <Alert
           type="warning"
@@ -335,13 +364,17 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
           }]}
         />
 
-        {lastResponse && (
-          <div className="submission-response">
+        {lastResponse && responseKind && (
+          <div className={`submission-response submission-response--${responseKind}`}>
+            <Text strong style={{ color: RESPONSE_BANNER[responseKind].color }}>
+              {RESPONSE_BANNER[responseKind].text}
+            </Text>
             <Title level={5}>Phản hồi gần nhất từ DRES</Title>
             <pre className="submission-json">{JSON.stringify(lastResponse, null, 2)}</pre>
           </div>
         )}
       </div>
-    </Modal>
+      </Modal>
+    </>
   )
 }

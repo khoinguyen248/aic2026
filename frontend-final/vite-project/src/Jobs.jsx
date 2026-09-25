@@ -17,19 +17,23 @@ import SubmissionModal from './SubmissionModal.jsx';
 import TrakePanel from './TrakePanel.jsx';
 import FrameCalc from './FrameCalc.jsx';
 import AsrResults from './AsrResults.jsx';
+import { parseVideoId, groupLabel } from './videoGroup.js';
 
+// Dùng cho lọc/nhóm kết quả trên UI: L ở đây là MÃ NHÓM ĐẦY ĐỦ (vd "K05", "L21",
+// "M01", "N078", "S01"), không phải số trần, để không gộp nhầm các nhóm chữ khác
+// nhau có cùng số thứ tự (vd M01 và S01 và N001 đều có số "01").
 const locationFromResult = (item) => {
   const source = typeof item === 'object' && item ? item : {};
-  const candidate = [source.video_id, source.path, source.url]
-    .filter(Boolean)
-    .join(' ');
-  const matched = candidate.match(/(?:[KL])?(\d+)_V(\d+)/i);
-  const l = source.L ?? matched?.[1] ?? '';
-  const v = source.V ?? matched?.[2] ?? '';
-
+  const parsed = parseVideoId(source.video_id) || parseVideoId(source.path) || parseVideoId(source.url);
+  if (parsed) {
+    return { L: `${groupLabel(parsed.letter, parsed.number)}${parsed.number}`, V: parsed.v };
+  }
+  // Không đọc được video_id -> chỉ còn L/V rời (quy ước cũ, luôn là nhóm L).
+  const l = String(source.L ?? '').replace(/^[KL]/i, '');
+  const v = String(source.V ?? '').replace(/^V/i, '');
   return {
-    L: String(l).replace(/^[KL]/i, ''),
-    V: String(v).replace(/^V/i, ''),
+    L: l ? `${groupLabel('L', l)}${l}` : '',
+    V: v,
   };
 };
 
@@ -189,13 +193,12 @@ function Jobs() {
 
       // metadata fields
       const videoId = !isString && item ? (item.video_id || "") : "";
-      const videoParts = videoId.split("_");
-      const L = !isString && item
-        ? (item.L || videoParts[0]?.replace(/^[KL]/, "") || "")
-        : "";
-      const V = !isString && item
-        ? (item.V || videoParts[1]?.replace(/^V/, "") || "")
-        : "";
+      // Ưu tiên đọc chữ nhóm thật từ video_id (đúng cho mọi nhóm K/L/M/N/S);
+      // item.L/item.V (số trần, không có chữ) chỉ dùng khi video_id không đọc được.
+      const parsedVid = !isString ? parseVideoId(videoId) : null;
+      const L = parsedVid ? parsedVid.number : (!isString && item ? String(item.L || "") : "");
+      const V = parsedVid ? parsedVid.v : (!isString && item ? String(item.V || "") : "");
+      const groupPrefix = parsedVid ? groupLabel(parsedVid.letter, parsedVid.number) : groupLabel('L', L);
       const frame_id = !isString && item
         ? (item.frame_id ?? item.frame_mid ?? (pathVal ? pathVal.split('/').pop() : ""))
         : (pathVal ? pathVal.split('/').pop() : "");
@@ -210,6 +213,7 @@ function Jobs() {
       const infor = {
         L: L,
         V: V,
+        video_id: videoId,
         mstime: mstime,
         frame_id: frame_id,
         minute: minute,
@@ -232,7 +236,7 @@ function Jobs() {
             </div>
           )}
           <div>
-            {`${L ? (parseInt(L.slice(0, 2)) <= 20 ? "K" : "L") + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
+            {`${L ? groupPrefix + ": " + L : videoId}${V ? " - V: " + V : ""} ${frame_id !== "" ? "- " + frame_id : ""} - ${minute}m${sec.toFixed(0)}s${fps !== "" && fps != null ? " · fps " + fps : ""}`}
             {url && <a href={`${url}&t=${time}s`} target="_blank" rel="noopener noreferrer"><CiLink /></a>}
           </div>
           {metadataText && (
@@ -249,7 +253,7 @@ function Jobs() {
               aria-label="Xem các frame lân cận"
               onClick={() => {
                 setModalFlag(true);
-                setSelectedFrame({ idx: item.idx, L: item.L, V: item.V });
+                setSelectedFrame({ idx: item.idx, L: item.L, V: item.V, video_id: videoId });
               }}
             />}
             {url && <Button
@@ -728,7 +732,7 @@ function Jobs() {
                   >
                     {availableLs.map((value) => (
                       <Option key={value} value={value}>
-                        {Number(value) <= 20 ? 'K' : 'L'}{value}
+                        {value}
                       </Option>
                     ))}
                   </Select>
@@ -756,12 +760,12 @@ function Jobs() {
                   >
                     {availableLs.map((value) => (
                       <Option key={`l:${value}`} value={`l:${value}`}>
-                        Bỏ toàn bộ {Number(value) <= 20 ? 'K' : 'L'}{value}
+                        Bỏ toàn bộ {value}
                       </Option>
                     ))}
                     {availableVideoPairs.map(({ L, V }) => (
                       <Option key={`lv:${L}:${V}`} value={`lv:${L}:${V}`}>
-                        Bỏ {Number(L) <= 20 ? 'K' : 'L'}{L}_V{V}
+                        Bỏ {L}_V{V}
                       </Option>
                     ))}
                   </Select>

@@ -3,6 +3,7 @@ import './Infor.css'
 import { Button } from 'antd'
 import { searchinfo } from './api';
 import { CiLink } from "react-icons/ci";
+import { parseVideoId, groupLabel } from './videoGroup.js';
 
 
 const Infor = ({ setModalFlag, selectedFrame }) => {
@@ -80,8 +81,11 @@ style={{
       }}                
               />
               <div style={{display:'flex', alignItems:'center'}}>
-                <p>{`${parseInt(f.L) <= 20 ? "K" : "L"}: ${f.L}${f.V ? " - V: " + f.V : ""} - ${f.
-frame_id}`}</p>
+                <p>{(() => {
+                  const parsedVid = parseVideoId(f.video_id);
+                  const prefix = parsedVid ? groupLabel(parsedVid.letter, parsedVid.number) : groupLabel('L', f.L);
+                  return `${prefix}: ${f.L}${f.V ? " - V: " + f.V : ""} - ${f.frame_id}`;
+                })()}</p>
 <a href={`${f.video_url}&t=${time}s`} target="_blank" 
   rel="noopener noreferrer"><CiLink/></a>
               </div>

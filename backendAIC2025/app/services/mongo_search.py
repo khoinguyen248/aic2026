@@ -6,9 +6,13 @@ from typing import Optional
 from pymongo import MongoClient
 
 
+_VIDEO_ID_RE = re.compile(r"^[A-Za-z]+(.+?)[_-]V(.+)$")
+
+
 def _parse_video_id(video_id):
-    """'L30_V068' -> (L='30', V='068'). Không khớp -> (None, None)."""
-    m = re.match(r"L(.+?)_V(.+)", str(video_id))
+    """'L30_V068' -> ('30','068'); 'N078-V002' -> ('078','002'). Chấp nhận mọi chữ cái nhóm
+    (K/L/M/N/S...) và cả 2 kiểu dấu phân cách '_'/'-' đang có trong dataset. Không khớp -> (None, None)."""
+    m = _VIDEO_ID_RE.match(str(video_id))
     if m:
         return m.group(1), m.group(2)
     return None, None
@@ -62,6 +66,8 @@ def search_ocr(
                 "_id": 0,
                 "idx": 1,
                 "video_id": 1,
+                "L": 1,
+                "V": 1,
                 "frame_id": 1,
                 "keyframe_order": 1,
                 "frame_stamp": 1,

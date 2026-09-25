@@ -39,3 +39,15 @@ export const describeDresError = (error) => {
   if (data?.error) return data.error
   return error?.message || 'Không thể kết nối DRES.'
 }
+
+// Phân loại phản hồi DRES để chọn hiệu ứng phù hợp: đúng / sai / cảnh báo.
+export const classifyDresResponse = (data) => {
+  if (!data) return null
+  if (data.error) return 'warning'
+  const submission = String(data.submission || '').toUpperCase()
+  if (submission === 'CORRECT' && data.status !== false) return 'correct'
+  if (submission === 'WRONG') return 'wrong'
+  if (data.status === true) return 'correct'
+  if (data.status === false) return 'wrong'
+  return 'warning'
+}
