@@ -228,14 +228,15 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
       message.error(validationError)
       return
     }
-    Modal.confirm({
-      title: 'Xác nhận nộp đáp án?',
-      content: 'Mỗi lần nộp sai bị trừ điểm. Hãy kiểm tra VIDEO_ID, thời gian/frame và evaluation đang ACTIVE.',
-      okText: 'Nộp lên DRES',
-      cancelText: 'Kiểm tra lại',
-      okButtonProps: { danger: true },
-      onOk: doSubmit,
-    })
+    // Modal.confirm({
+    //   title: 'Xác nhận nộp đáp án?',
+    //   content: 'Mỗi lần nộp sai bị trừ điểm. Hãy kiểm tra VIDEO_ID, thời gian/frame và evaluation đang ACTIVE.',
+    //   okText: 'Nộp lên DRES',
+    //   cancelText: 'Kiểm tra lại',
+    //   okButtonProps: { danger: true },
+    //   onOk: doSubmit,
+    // })
+    doSubmit()
   }
 
   const copyPayload = async () => {
