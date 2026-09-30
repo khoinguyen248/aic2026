@@ -1,0 +1,41 @@
+[
+  {
+    "id": "q1_L26_V069_nau_luon",
+    "events": [
+      "người đầu bếp lấy cọ phết dầu ăn lên chảo",
+      "người đầu bếp đặt lươn lên chảo nướng",
+      "người đầu bếp dùng muôi gỗ ép miếng lươn",
+      "miếng lươn được đặt lên dĩa"
+    ],
+    "language": false,
+    "model": "jina",
+    "max_event_gap_s": null,
+    "gt": { "video_id": "L26_V069", "frame_ids": [5360, 5473, 5631, 6104], "fps": 25 }
+  },
+  {
+    "id": "q2_L22_V010_tet",
+    "events": [
+      "một ngôi sao đỏ viền vàng nằm trong một vòng tròn bạc",
+      "nữ MC dùng tay cầm một sợi dây có móc nhiều đồ vật",
+      "người đàn ông trung niên mặc áo đen có họa tiết màu cam ở giữa áo đang cầm một đồ vật",
+      "chú gấu trúc đồ chơi có bụng phát sáng đang được treo lủng lẳng"
+    ],
+    "language": false,
+    "model": "jina",
+    "max_event_gap_s": null,
+    "gt": { "video_id": "L22_V010", "frame_ranges": [[9104, 9164], [9358, 9480], [9609, 9669], [9758, 9778]], "fps": 25 }
+  },
+  {
+    "id": "q3_L27_V016_thien_nhien",
+    "events": [
+      "một cậu bé cưỡi trâu ở dưới nước và vung nước lên",
+      "một người đàn ông đeo đèn pin trên đầu có quai xanh nước biển, đeo đồng hồ đen và cười, phía sau là cánh đồng lúa",
+      "một cô gái mặc áo ngoài màu trắng đi giữa khu chợ ẩm thực có xe bán cánh gà lắc",
+      "một chiếc vỏ lãi màu xanh da trời chạy trên con kênh, trên bờ có con đường và rừng"
+    ],
+    "language": false,
+    "model": "jina",
+    "max_event_gap_s": null,
+    "gt": { "video_id": "L27_V016", "frame_ids": [86, 146, 283, 1197], "fps": 25 }
+  }
+]

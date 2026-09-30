@@ -108,11 +108,34 @@ def spearman_rho(a, b):
     return 1 - (6 * d2) / (n * (n * n - 1))
 
 
-def combo_correct(pred_frames, gt_frames, tol):
-    """Combo đúng nếu cùng độ dài và mỗi frame lệch <= tol so với GT (theo vị trí sự kiện)."""
-    if len(pred_frames) != len(gt_frames):
+def gt_bounds(gt):
+    """Chuẩn hoá GT thành per-event (lo, hi, mid).
+    - gt.frame_ids: [f,...]     -> điểm (lo=hi=mid=f)
+    - gt.frame_ranges: [[s,e]]  -> khoảng (lo=s, hi=e, mid=(s+e)/2)
+    """
+    if gt.get("frame_ranges"):
+        los, his, mids = [], [], []
+        for s, e in gt["frame_ranges"]:
+            s, e = int(min(s, e)), int(max(s, e))
+            los.append(s); his.append(e); mids.append((s + e) // 2)
+        return los, his, mids
+    fids = [int(x) for x in gt.get("frame_ids", [])]
+    return fids[:], fids[:], fids[:]
+
+
+def _dist_to_band(p, lo, hi):
+    """Khoảng cách frame từ p tới đoạn [lo,hi] (0 nếu nằm trong)."""
+    p = int(p)
+    if lo <= p <= hi:
+        return 0
+    return min(abs(p - lo), abs(p - hi))
+
+
+def combo_correct(pred_frames, los, his, tol):
+    """Combo đúng nếu cùng độ dài và mỗi frame nằm trong [lo-tol, hi+tol] theo vị trí sự kiện."""
+    if len(pred_frames) != len(los):
         return False
-    return all(abs(int(p) - int(g)) <= tol for p, g in zip(pred_frames, gt_frames))
+    return all(_dist_to_band(p, lo, hi) <= tol for p, lo, hi in zip(pred_frames, los, his))
 
 
 # --------------------------------------------------------------------------- #
@@ -217,13 +240,13 @@ def eval_query(q, run_key, engine, ks, tol):
 
     subs = res.get("submissions", [])
     gt_vid = norm_vid(gt.get("video_id"))
-    gt_frames = [int(x) for x in gt.get("frame_ids", [])]
+    los, his, mids = gt_bounds(gt)
     fps = float(gt.get("fps") or (res.get("per_video") or [{}])[0].get("fps") or 25.0)
 
     # rank của combo đúng đầu tiên
     rank_correct = None
     for i, s in enumerate(subs):
-        if norm_vid(s.get("video_id")) == gt_vid and combo_correct(s.get("frame_ids", []), gt_frames, tol):
+        if norm_vid(s.get("video_id")) == gt_vid and combo_correct(s.get("frame_ids", []), los, his, tol):
             rank_correct = i + 1
             break
     out["rank_correct"] = rank_correct
@@ -233,12 +256,12 @@ def eval_query(q, run_key, engine, ks, tol):
 
     # temporal: combo top-1 của ĐÚNG video (nếu có) để đo sai lệch thời gian
     pred = next((s.get("frame_ids", []) for s in subs if norm_vid(s.get("video_id")) == gt_vid), None)
-    if pred and len(pred) == len(gt_frames) and gt_frames:
-        diffs = [abs(int(p) - int(g)) for p, g in zip(pred, gt_frames)]
-        out["mate_s"] = (sum(diffs) / len(diffs)) / fps if fps else None
-        out["thit"] = sum(1 for d in diffs if d <= tol) / len(diffs)
-        out["kendall"] = kendall_tau(pred, gt_frames)
-        out["spearman"] = spearman_rho(pred, gt_frames)
+    if pred and len(pred) == len(los):
+        dists = [_dist_to_band(p, lo, hi) for p, lo, hi in zip(pred, los, his)]
+        out["mate_s"] = (sum(dists) / len(dists)) / fps if fps else None
+        out["thit"] = sum(1 for d in dists if d <= tol) / len(dists)
+        out["kendall"] = kendall_tau([int(p) for p in pred], mids)
+        out["spearman"] = spearman_rho([int(p) for p in pred], mids)
         out["video_hit"] = 1
     else:
         out["video_hit"] = int(any(norm_vid(s.get("video_id")) == gt_vid for s in subs))
