@@ -74,6 +74,10 @@ class Config:
     # có fallback an toàn về thuật toán nếu load/inference lỗi.
     TRAKE_RERANK_TIE_MARGIN = float(os.getenv("TRAKE_RERANK_TIE_MARGIN", "0.03"))
 
+    # Chế độ rerank tầng 3: "peak" (dò đỉnh prominence, mặc định) | "argmax" (chỉ lấy điểm cao nhất).
+    # Dùng cho ablation Run4 (argmax) vs Run5 (peak).
+    TRAKE_RERANK_MODE = os.getenv("TRAKE_RERANK_MODE", "peak")
+
     # Qwen2.5-VL chạy LOCAL: load qua transformers, giữ ấm trên GPU (spec mục 13) - KHÔNG dùng API.
     # Model 7B/72B rất nặng -> quantize (4bit/8bit qua bitsandbytes) để giảm VRAM/RAM.
     # QWEN_MODEL_PATH: HF id hoặc thư mục local; có thể trỏ thẳng bản đã prequant AWQ/GPTQ rồi để

@@ -260,3 +260,8 @@ detseg/
 # esbuild scratch trên Windows (--outfile=/dev/null)
 nul
 nul.css
+
+# Eval TRAKE: output sinh ra + file smoke (giữ template + README + harness)
+backendAIC2025/app/eval/out/
+backendAIC2025/app/eval/smoke.json
+backendAIC2025/app/eval/queries_gt.json

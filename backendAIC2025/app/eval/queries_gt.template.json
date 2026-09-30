@@ -1,0 +1,27 @@
+[
+  {
+    "id": "q1_example_visual_only",
+    "events": [
+      "người phụ nữ áo vàng bước vào khu vườn",
+      "người phụ nữ đứng dưới giàn dây leo",
+      "người phụ nữ hái lá trầu"
+    ],
+    "language": true,
+    "model": "beit3",
+    "max_event_gap_s": null,
+    "gt": { "video_id": "L21_V001", "frame_ids": [1234, 1460, 1702], "fps": 25 }
+  },
+  {
+    "id": "q2_example_hybrid_asr",
+    "events": [
+      "người phụ nữ áo vàng đứng dưới giàn dây leo",
+      "cận cảnh lá trầu trên tay"
+    ],
+    "events_ocr": ["", ""],
+    "events_asr": ["truyền thống trồng trầu", ""],
+    "language": true,
+    "model": "jina",
+    "max_event_gap_s": 30,
+    "gt": { "video_id": "L27_V012", "frame_ids": [9022, 10361], "fps": 25 }
+  }
+]

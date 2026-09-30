@@ -17,6 +17,7 @@ Không có video (Case 2) -> dừng ở keyframe. Rerank Qwen chỉ chạy khi b
 import logging
 import os
 import threading
+import time
 from itertools import product
 from math import prod
 
@@ -390,7 +391,11 @@ def _rank_by_peak(scores, topk):
 
 def pick_semantic_frame_algorithmic(frame_ids, scores, topk):
     scores = np.asarray(scores, dtype=np.float64)
-    order = _rank_by_peak(scores, topk)
+    # Run4 (argmax) vs Run5 (peak): TRAKE_RERANK_MODE = "argmax" | "peak" (mặc định peak).
+    if str(getattr(Config, "TRAKE_RERANK_MODE", "peak")).lower() == "argmax":
+        order = np.argsort(-scores)[:topk].tolist()
+    else:
+        order = _rank_by_peak(scores, topk)
     return [(int(frame_ids[i]), float(scores[i])) for i in order]
 
 
@@ -746,8 +751,15 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
     conf_thr = Config.TRAKE_VIDEO_CONFIDENCE_THRESHOLD
     tier3_topk = candidate_budget(len(events_text))
 
-    event_vecs = encode_events(events_text, engine, model)
+    # Đo thời gian từng pha (giây) cho eval latency breakdown.
+    _t = {"encode": 0.0, "tier1": 0.0, "tier2": 0.0, "tier3": 0.0, "qwen": 0.0, "combos": 0.0}
+    _t_all = time.perf_counter()
 
+    _c = time.perf_counter()
+    event_vecs = encode_events(events_text, engine, model)
+    _t["encode"] += time.perf_counter() - _c
+
+    _c = time.perf_counter()
     video_candidates, attempt_m = [], top_m
     for _ in range(3):
         video_candidates = select_video_dp(event_vecs, engine, model, top_m=attempt_m, top_videos=top_videos)
@@ -779,6 +791,7 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         }
 
     slots = allocate_video_slots(video_candidates, total_slots=max_combos, confidence_threshold=conf_thr)
+    _t["tier1"] += time.perf_counter() - _c
     ready, reason = tier3_globally_ready()
     qwen_ready, qwen_reason = qwen_rerank_ready()
 
@@ -791,10 +804,12 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         if slot_count <= 0:
             continue
         vid = video["video_id"]
+        _c = time.perf_counter()
         coarse, coarse_path_map = locate_events_exact(
             event_vecs, engine, model, vid, topk=tier3_topk,
             events_ocr=events_ocr, events_asr=events_asr,
         )
+        _t["tier2"] += time.perf_counter() - _c
         if not coarse or all(not c["cands"] for c in coarse):
             continue
 
@@ -803,6 +818,7 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
 
         candidates_per_event = []
         qwen_used = 0
+        _c = time.perf_counter()
         if use_tier3:
             prev_fine = None
             for ev_vec, ev_text, ev_res in zip(event_vecs, events_text, coarse):
@@ -824,6 +840,7 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
         else:
             for ev_res in coarse:
                 candidates_per_event.append(_cand_pairs(ev_res["cands"]))
+        _t["tier3"] += time.perf_counter() - _c
 
         any_tier3 = any_tier3 or use_tier3
 
@@ -848,19 +865,23 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
 
         # Tầng 2 + Qwen (Case 2, không cần video): phân xử ties bằng ảnh keyframe.
         if not use_tier3 and qwen_ready:
+            _c = time.perf_counter()
             candidates_per_event, qn2 = qwen_rerank_tier2(
                 candidates_per_event, coarse_path_map, events_text,
                 Config.KEYFRAMES_PATH, Config.TRAKE_RERANK_TIE_MARGIN,
             )
+            _t["qwen"] += time.perf_counter() - _c
             qwen_used += qn2
 
         qwen_used_total += qwen_used
 
+        _c = time.perf_counter()
         combos = build_cartesian_submissions(
             candidates_per_event,
             max_combos=slot_count,
             max_gap=_max_event_gap_frames(video.get("fps"), max_event_gap_s),
         )
+        _t["combos"] += time.perf_counter() - _c
         # Ứng viên từng event (score + path keyframe) -> UI hiện điểm tương đồng + verify tay.
         event_candidates = []
         for cands in candidates_per_event:
@@ -897,8 +918,11 @@ def run_trake(events_text, engine, model, top_m=None, top_videos=None, max_combo
             submissions.append({"video_id": r["video_id"], "frame_ids": combo})
     submissions = submissions[:max_combos]
 
+    _t["total"] = time.perf_counter() - _t_all
+
     return {
         "ok": True,
+        "timings": {k: round(v, 4) for k, v in _t.items()},
         "mode": "case1_full" if any_tier3 else "case2_coarse",
         "tier": 3 if any_tier3 else 2,
         "rerank_method": "qwen" if qwen_used_total > 0 else "algorithm",
