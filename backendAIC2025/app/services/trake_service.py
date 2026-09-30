@@ -426,6 +426,13 @@ def _load_qwen():
             import torch
             from transformers import AutoProcessor
 
+            # CHỐT AN TOÀN: KHÔNG nạp VLM lên CPU (7B/2B trên CPU dễ ăn hết RAM -> treo máy).
+            # Qwen chỉ chạy khi có CUDA; không có GPU -> tắt, fallback thuật toán peak.
+            if not torch.cuda.is_available():
+                logger.warning("Qwen rerank cần CUDA/GPU; máy không có -> tắt Qwen, dùng thuật toán (peak).")
+                _qwen_load_failed = True
+                return None, None
+
             # Class generic đổi tên theo version: transformers 5.x = AutoModelForImageTextToText,
             # 4.x = AutoModelForVision2Seq. Fallback về class Qwen cụ thể nếu thiếu.
             _AutoVLM = None
