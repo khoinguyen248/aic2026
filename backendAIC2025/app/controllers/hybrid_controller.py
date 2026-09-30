@@ -4,8 +4,6 @@
 Pipeline: semantic search -> Top-K frames -> POST danh sách frame + query -> giữ frame khớp.
 Giữ NGUYÊN thứ tự semantic (chỉ lọc, không rerank).
 """
-import re
-
 from flask import request, jsonify, current_app
 
 from ..services.mongo_search import get_database
@@ -29,23 +27,33 @@ def _pairs(data):
 
 
 def ocr_filter():
-    """POST /search/ocr_filter {frames:[{video_id,frame_id}], query} -> frame có OCR khớp query."""
+    """POST /search/ocr_filter {frames:[{video_id,frame_id}], query} -> frame có OCR khớp query.
+
+    Dùng CHÍNH Atlas fuzzy search (ocr_frame_ids_in_video) theo từng video như OCR standalone,
+    rồi GIAO với tập ứng viên. Đảm bảo tiêu chí lọc == tiêu chí search (không dùng regex nguyên cụm
+    quá chặt). Giữ nguyên thứ tự semantic đầu vào.
+    """
     try:
+        from ..services.mongo_search import ocr_frame_ids_in_video
+
         data = request.get_json(force=True, silent=True) or {}
-        q = (data.get("query") or "").strip().lower()
+        q = (data.get("query") or "").strip()
         pairs = _pairs(data)
         if not q or not pairs:
             return jsonify({"ok": True, "count": 0, "results": []}), 200
 
-        or_clause = [{"video_id": v, "frame_id": fid} for (v, fid) in pairs]
-        tmap = {}
-        for d in get_database()["ocr_metadata"].find(
-            {"$or": or_clause}, {"_id": 0, "video_id": 1, "frame_id": 1, "ocr_text": 1}
-        ):
-            tmap[(d.get("video_id"), d.get("frame_id"))] = str(d.get("ocr_text") or "").lower()
+        # Với mỗi video trong tập ứng viên: lấy các frame_id khớp OCR (Atlas fuzzy, scoped theo video).
+        vids = {v for (v, _) in pairs}
+        matched_fids = {}
+        for vid in vids:
+            try:
+                got = ocr_frame_ids_in_video(q, vid, limit=200)
+            except Exception:
+                got = []
+            matched_fids[vid] = {int(fid) for fid, _path in got if fid is not None}
 
         results = [{"video_id": v, "frame_id": fid} for (v, fid) in pairs
-                   if q in tmap.get((v, fid), "")]
+                   if fid in matched_fids.get(v, set())]
         return jsonify({"ok": True, "count": len(results), "results": results}), 200
     except Exception as e:
         current_app.logger.exception("ocr_filter failed: %s", e)
@@ -106,25 +114,23 @@ def frame_detail():
 def asr_filter():
     """POST /search/asr_filter {frames, query} -> frame nằm trong đoạn ASR có lời nói khớp query."""
     try:
+        from ..services.mongo_search import asr_ranges_in_video
+
         data = request.get_json(force=True, silent=True) or {}
         q = (data.get("query") or "").strip()
         pairs = _pairs(data)
         if not q or not pairs:
             return jsonify({"ok": True, "count": 0, "results": []}), 200
 
-        db = get_database()
+        # Với mỗi video: lấy các khoảng (frame_start,frame_end) khớp ASR (Atlas fuzzy, scoped) như ASR standalone.
         vids = {v for (v, _) in pairs}
         ranges = {}
-        rx = {"$regex": re.escape(q), "$options": "i"}
         for vid in vids:
-            rs = []
-            for s in db["asr_metadata"].find(
-                {"video_id": vid, "text": rx}, {"_id": 0, "frame_start": 1, "frame_end": 1}
-            ):
-                fs, fe = _int(s.get("frame_start")), _int(s.get("frame_end"))
-                if fs is not None and fe is not None:
-                    rs.append((min(fs, fe), max(fs, fe)))
-            ranges[vid] = rs
+            try:
+                rs = asr_ranges_in_video(q, vid, limit=50)
+            except Exception:
+                rs = []
+            ranges[vid] = [(min(a, b), max(a, b)) for (a, b) in rs]
 
         results = [{"video_id": v, "frame_id": fid} for (v, fid) in pairs
                    if any(a <= fid <= b for (a, b) in ranges.get(v, []))]
