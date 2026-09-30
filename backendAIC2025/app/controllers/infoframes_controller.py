@@ -191,30 +191,42 @@ def frames_in_range():
         except ValueError:
             model = "beit3"
 
-        engine = _get_engine()
-        collection = engine.collection_name(model)
-
-        flt = Filter(
-            must=[
-                FieldCondition(key="video_id", match=MatchValue(value=video_id)),
-                FieldCondition(key="frame_id", range=Range(gte=fs, lte=fe)),
-            ]
-        )
-
         items = []
-        offset = None
-        while len(items) < RANGE_LIMIT + 1:
-            batch, offset = engine.client.scroll(
-                collection_name=collection,
-                scroll_filter=flt,
-                limit=1000,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
+        try:
+            engine = _get_engine()
+            collection = engine.collection_name(model)
+            flt = Filter(
+                must=[
+                    FieldCondition(key="video_id", match=MatchValue(value=video_id)),
+                    FieldCondition(key="frame_id", range=Range(gte=fs, lte=fe)),
+                ]
             )
-            items.extend(dict(p.payload or {}) for p in batch)
-            if offset is None:
-                break
+            offset = None
+            while len(items) < RANGE_LIMIT + 1:
+                batch, offset = engine.client.scroll(
+                    collection_name=collection,
+                    scroll_filter=flt,
+                    limit=1000,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                items.extend(dict(p.payload or {}) for p in batch)
+                if offset is None:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.info("framerange Qdrant lỗi (%s) -> fallback Mongo", exc)
+
+        # Batch2 (S/M/N) chỉ nằm ở collection jina -> beit3 rỗng; hoặc video chưa vào Qdrant.
+        # Fallback ocr_metadata (Mongo) — không phụ thuộc model.
+        if not items:
+            proj = {"_id": 0, "idx": 1, "video_id": 1, "L": 1, "V": 1,
+                    "frame_id": 1, "frame_stamp": 1, "video_url": 1}
+            for d in get_database()["ocr_metadata"].find(
+                {"video_id": video_id, "frame_id": {"$gte": fs, "$lte": fe}}, proj
+            ).sort("frame_id", 1).limit(RANGE_LIMIT + 1):
+                d["path"] = f"Keyframes/{video_id}/{_to_int(d.get('frame_id')):06d}.webp"
+                items.append(d)
 
         items.sort(key=lambda d: _to_int(d.get("frame_id")))
         total = len(items)

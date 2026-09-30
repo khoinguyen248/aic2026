@@ -20,7 +20,13 @@ export const framesInRange = (data) => API.post('/search/framerange', data)
 export const trakeSearch = (data) => API.post('/search/trake', data)
 export const asrSearch = (data) => API.post('/search/asr', data)
 export const ocrSearch = (data) => API.post('/search/ocr', data)
+export const trafficSearch = (data) => API.post('/search/traffic', data)
 export const captionSearch = (data) => API.post('/search/caption', data)
+// Hybrid: lọc lại tập frame semantic (Top-K) theo OCR / ASR query
+export const ocrFilter = (data) => API.post('/search/ocr_filter', data)
+export const asrFilter = (data) => API.post('/search/asr_filter', data)
+// Lấy đầy đủ metadata (caption/OCR/ASR/objects) của 1 frame cho panel chi tiết
+export const frameDetail = (data) => API.post('/search/frame_detail', data)
 // URL ảnh 1 frame gốc để verify (decode từ video ở backend; lỗi/404 nếu máy không có video)
 export const frameUrl = (L, V, frameId) =>
     `${API_BASE}/search/frame?L=${encodeURIComponent(L)}&V=${encodeURIComponent(V)}&frame_id=${frameId}`

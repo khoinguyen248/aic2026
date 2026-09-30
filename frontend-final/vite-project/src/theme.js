@@ -1,0 +1,30 @@
+// Design tokens — AIC 2026 Multimodal Search (professional light theme, navy + electric blue).
+export const aicTheme = {
+  token: {
+    colorPrimary: '#1677FF',
+    colorInfo: '#1677FF',
+    colorSuccess: '#16A34A',
+    colorWarning: '#F59E0B',
+    colorBgLayout: '#F8FAFC',
+    colorBgContainer: '#FFFFFF',
+    colorBorder: '#E2E8F0',
+    colorBorderSecondary: '#EAECF0',
+    colorText: '#172033',
+    colorTextSecondary: '#64748B',
+    colorTextTertiary: '#94A3B8',
+    borderRadius: 10,
+    fontFamily: "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    fontSize: 14,
+    controlHeight: 38,
+    boxShadowTertiary: '0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04)',
+  },
+  components: {
+    Button: { borderRadius: 8, fontWeight: 500 },
+    Input: { borderRadius: 10 },
+    Select: { borderRadius: 10 },
+    Card: { borderRadiusLG: 12 },
+    Modal: { borderRadiusLG: 14 },
+    Tag: { borderRadiusSM: 6 },
+    Segmented: { borderRadius: 10 },
+  },
+}

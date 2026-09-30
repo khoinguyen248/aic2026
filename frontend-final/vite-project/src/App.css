@@ -38,3 +38,96 @@
   color: #64748b;
   font-size: 12px;
 }
+
+/* ===== AIC redesign (Phase 1) ===== */
+body {
+  background: #F8FAFC;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: #172033;
+}
+
+.chip {
+  border: 1px solid #E2E8F0;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chip:hover { background: #F1F5F9; border-color: #CBD5E1; }
+.chip-active {
+  background: #EFF6FF;
+  border-color: #1677FF;
+  color: #1677FF;
+}
+
+/* ===== Result card grid (Phase 2) ===== */
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.result-card {
+  background: #fff;
+  border: 1px solid #EAECF0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(16,24,40,.06);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.result-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(16,24,40,.10);
+}
+.result-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #F1F5F9;
+  overflow: hidden;
+}
+.result-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.result-noimg {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: #94A3B8; font-size: 13px;
+}
+.result-score {
+  position: absolute; top: 8px; right: 8px;
+  background: #1677FF; color: #fff;
+  font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+}
+.result-time-badge {
+  position: absolute; bottom: 8px; left: 8px;
+  background: rgba(15,39,71,.82); color: #fff;
+  font-size: 12px; font-weight: 500;
+  padding: 2px 8px; border-radius: 6px;
+}
+.result-hover-actions {
+  position: absolute; top: 8px; left: 8px;
+  display: flex; gap: 6px;
+  opacity: 0; transition: opacity .15s ease;
+}
+.result-card:hover .result-hover-actions { opacity: 1; }
+.ra-btn {
+  width: 30px; height: 30px; border-radius: 8px;
+  border: none; cursor: pointer;
+  background: rgba(255,255,255,.92); color: #0F2747;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+.ra-btn:hover { background: #fff; }
+.ra-btn-primary { background: #1677FF; color: #fff; }
+.ra-btn-primary:hover { background: #0f5fd6; }
+.result-meta { padding: 10px 12px; }
+.result-vid { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 4px; }
+.result-caption {
+  margin-top: 6px; font-size: 13px; color: #172033;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}

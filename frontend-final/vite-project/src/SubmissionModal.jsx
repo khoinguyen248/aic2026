@@ -22,7 +22,7 @@ import {
 } from './dresApi'
 import './SubmissionModal.css'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 const STORAGE = {
   baseUrl: 'aic2026.dres.baseUrl',
@@ -48,11 +48,17 @@ const normalizeVideoId = (value) => String(value || '').trim().toUpperCase()
 
 const frameVideoId = (frame) => {
   if (!frame) return ''
+  // Ưu tiên video_id gốc (đã đúng, không thêm tiền tố). VD batch2: N075-V001.
   if (frame.video_id) return normalizeVideoId(frame.video_id)
-  const lRaw = String(frame.L || '').replace(/^[KL]/i, '').padStart(2, '0')
+  const lClean = String(frame.L || '').trim()
   const vRaw = String(frame.V || '').replace(/^V/i, '').padStart(3, '0')
-  if (!lRaw || !vRaw) return ''
-  return `${Number(lRaw) <= 20 ? 'K' : 'L'}${lRaw}_V${vRaw}`
+  if (!lClean || !vRaw) return ''
+  // L đã có tiền tố chữ khác K/L (N/S/M...) -> giữ nguyên, KHÔNG thêm L.
+  if (/^[A-Za-z]/.test(lClean) && !/^[KL]\d/i.test(lClean)) {
+    return `${lClean.toUpperCase()}-V${vRaw}`
+  }
+  const lNum = lClean.replace(/^[KL]/i, '').padStart(2, '0')
+  return `${Number(lNum) <= 20 ? 'K' : 'L'}${lNum}_V${vRaw}`
 }
 
 const initialFrames = (draft) => {
@@ -69,6 +75,18 @@ const makePayload = ({ taskType, videoId, timeMs, answer, frameIds }) => {
     return { answerSets: [{ answers: [{ text: `QA-${answer.trim()}-${videoId}-${timeMs}` }] }] }
   }
   return { answerSets: [{ answers: [{ text: `TR-${videoId}-${frameIds.join(',')}` }] }] }
+}
+
+// Diễn giải phản hồi DRES thành banner dễ đọc (xanh = đúng, đỏ = sai).
+const verdictOf = (resp) => {
+  if (!resp) return null
+  if (resp.error) return { type: 'error', text: '✗ Nộp KHÔNG được nhận (lỗi)', desc: String(resp.error) }
+  const s = String(resp.submission ?? '').toUpperCase()
+  if (s === 'CORRECT') return { type: 'success', text: '✓ ĐÚNG! (CORRECT)', desc: resp.description }
+  if (s === 'WRONG') return { type: 'error', text: '✗ SAI (WRONG) — bị trừ 10 điểm', desc: resp.description }
+  if (s === 'INDETERMINATE' || s === 'UNDECIDABLE') return { type: 'warning', text: `Chưa xác định (${s})`, desc: resp.description }
+  if (resp.status === true) return { type: 'success', text: '✓ DRES đã nhận bài', desc: resp.description }
+  return { type: 'info', text: 'Đã nhận phản hồi từ DRES', desc: resp.description }
 }
 
 export default function SubmissionModal({ open, onClose, draft, defaultTaskType = 'kis' }) {
@@ -118,7 +136,7 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
     if (!baseUrl.trim()) return 'Thiếu địa chỉ DRES.'
     if (!sessionId.trim()) return 'Thiếu sessionId.'
     if (!evaluationId.trim()) return 'Thiếu evaluationID.'
-    if (!/^[KL]\d+_V\d+$/i.test(videoId.trim())) return 'VIDEO_ID phải có dạng K01_V001 hoặc L21_V001.'
+    if (!videoId.trim()) return 'Thiếu VIDEO_ID.'
     if ((taskType === 'kis' || taskType === 'qa') && (!Number.isFinite(Number(timeMs)) || Number(timeMs) < 0)) {
       return 'TIME(ms) phải là số nguyên không âm.'
     }
@@ -329,12 +347,29 @@ export default function SubmissionModal({ open, onClose, draft, defaultTaskType 
           }]}
         />
 
-        {lastResponse && (
-          <div className="submission-response">
-            <Title level={5}>Phản hồi gần nhất từ DRES</Title>
-            <pre className="submission-json">{JSON.stringify(lastResponse, null, 2)}</pre>
-          </div>
-        )}
+        {lastResponse && (() => {
+          const v = verdictOf(lastResponse)
+          return (
+            <div className="submission-response">
+              {v && (
+                <Alert
+                  type={v.type}
+                  showIcon
+                  message={<span style={{ fontSize: 16, fontWeight: 700 }}>{v.text}</span>}
+                  description={v.desc}
+                  style={{ marginBottom: 8 }}
+                />
+              )}
+              <Collapse
+                items={[{
+                  key: 'raw',
+                  label: 'Chi tiết phản hồi (JSON)',
+                  children: <pre className="submission-json">{JSON.stringify(lastResponse, null, 2)}</pre>,
+                }]}
+              />
+            </div>
+          )
+        })()}
       </div>
     </Modal>
 

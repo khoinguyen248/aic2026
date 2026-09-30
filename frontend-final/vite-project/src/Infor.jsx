@@ -4,13 +4,12 @@ import { Button, Tag } from 'antd'
 import { searchinfo } from './api';
 import { CiLink } from "react-icons/ci";
 
-// Từ 1 frame doc -> draft để nộp (video_id + frame_id + thời gian ms).
+// Từ 1 frame doc -> draft để nộp. Thời gian ms lấy TỪ frame_stamp (timestamp thật trong metadata),
+// KHÔNG suy từ frame_id/fps vì fps camera nhóm N không cố định (KIS/QA nộp theo millisecond).
 const frameDraft = (f) => {
   const t = Number(f.frame_stamp)
-  const mstime = Number.isFinite(t)
-    ? Math.floor(t * 1000)
-    : (f.fps ? Math.floor((Number(f.frame_id) / Number(f.fps)) * 1000) : 0)
-  return { video_id: f.video_id, L: f.L, V: f.V, frame_id: f.frame_id, fps: f.fps, mstime }
+  const mstime = Number.isFinite(t) ? Math.round(t * 1000) : 0
+  return { video_id: f.video_id, L: f.L, V: f.V, frame_id: f.frame_id, fps: f.fps, frame_stamp: f.frame_stamp, mstime }
 }
 
 const Infor = ({ setModalFlag, selectedFrame, onSubmitSingle, trakeEvents, onSubmitCombo }) => {

@@ -253,3 +253,10 @@ metadata*.zip
 Thumbs.db
 .idea/
 .vscode/
+
+# Dữ liệu detection/segmentation thô (parquet ~466MB) — nạp vào Mongo qua scripts/import_detseg.py, không đưa vào git
+detseg/
+
+# esbuild scratch trên Windows (--outfile=/dev/null)
+nul
+nul.css
