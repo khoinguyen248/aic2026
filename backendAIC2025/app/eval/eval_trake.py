@@ -20,6 +20,10 @@ import os
 import statistics
 import time
 
+# Colab co TensorFlow cai san -> transformers se import TF (va vo vi protobuf). Tat TF (chi dung torch).
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+
 from ..config import Config
 from ..services import trake_service
 
