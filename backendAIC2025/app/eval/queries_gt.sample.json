@@ -38,5 +38,17 @@
     "model": "jina",
     "max_event_gap_s": null,
     "gt": { "video_id": "L27_V016", "frame_ids": [86, 146, 283, 1197], "fps": 25 }
+  },
+  {
+    "id": "q4_L23_V007_dua_xe_dap",
+    "events": [
+      "bốn tay đua áo vàng bám sát bốn tay đua áo xanh",
+      "cận cảnh hai tay đua áo xanh, số hiệu hiện rõ hoàn toàn",
+      "ba tay đua áo trắng pha xanh lá xếp thành một hàng thẳng, tay đua cuối hàng vượt qua vạch sang đường"
+    ],
+    "language": false,
+    "model": "jina",
+    "max_event_gap_s": null,
+    "gt": { "video_id": "L23_V007", "frame_ids": [1626, 2511, 3334], "fps": 25 }
   }
 ]
