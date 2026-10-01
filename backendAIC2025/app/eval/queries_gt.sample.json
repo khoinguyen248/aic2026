@@ -33,6 +33,7 @@
       "một cô gái mặc áo ngoài màu trắng đi giữa khu chợ ẩm thực có xe bán cánh gà lắc",
       "một chiếc vỏ lãi màu xanh da trời chạy trên con kênh, trên bờ có con đường và rừng"
     ],
+    "events_ocr": ["", "", "Cánh gà lắc", ""],
     "language": false,
     "model": "jina",
     "max_event_gap_s": null,

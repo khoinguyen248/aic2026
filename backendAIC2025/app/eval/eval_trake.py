@@ -254,10 +254,13 @@ def eval_query(q, run_key, engine, ks, tol):
     out["mrr"] = (1.0 / rank_correct) if rank_correct else 0.0
     out["ap"] = (1.0 / rank_correct) if rank_correct else 0.0  # 1 target/query
 
-    # temporal: combo top-1 của ĐÚNG video (nếu có) để đo sai lệch thời gian
+    # temporal: combo top-1 của ĐÚNG video (nếu có) để đo sai lệch thời gian + ĐỘ LỆCH FRAME
     pred = next((s.get("frame_ids", []) for s in subs if norm_vid(s.get("video_id")) == gt_vid), None)
     if pred and len(pred) == len(los):
-        dists = [_dist_to_band(p, lo, hi) for p, lo, hi in zip(pred, los, his)]
+        dists = [_dist_to_band(p, lo, hi) for p, lo, hi in zip(pred, los, his)]  # lệch frame/event
+        out["offsets"] = dists
+        out["mate_frames"] = sum(dists) / len(dists)
+        out["max_off"] = max(dists)          # = tolerance tối thiểu để query này ĐÚNG hết event
         out["mate_s"] = (sum(dists) / len(dists)) / fps if fps else None
         out["thit"] = sum(1 for d in dists if d <= tol) / len(dists)
         out["kendall"] = kendall_tau([int(p) for p in pred], mids)
@@ -285,11 +288,18 @@ def aggregate(rows, ks):
     agg["MRR"] = _mean([r["mrr"] for r in gt_rows]) if gt_rows else None
     agg["mAP"] = _mean([r["ap"] for r in gt_rows]) if gt_rows else None
     agg["VideoHit"] = _mean([r.get("video_hit", 0) for r in gt_rows]) if gt_rows else None
-    # temporal
+    # temporal + độ lệch frame
     agg["MATE_s"] = _mean([r.get("mate_s") for r in gt_rows])
+    agg["MATE_frames"] = _mean([r.get("mate_frames") for r in gt_rows])
+    agg["MaxOff_frames"] = _mean([r.get("max_off") for r in gt_rows])
     agg["T@tol"] = _mean([r.get("thit") for r in gt_rows])
     agg["Kendall"] = _mean([r.get("kendall") for r in gt_rows])
     agg["Spearman"] = _mean([r.get("spearman") for r in gt_rows])
+    # sweep ngưỡng lệch frame: tỷ lệ EVENT (đã trúng video) có lệch <= ngưỡng
+    all_off = [d for r in gt_rows for d in (r.get("offsets") or [])]
+    agg["_sweep"] = {thr: (_mean([int(d <= thr) for d in all_off]) if all_off else None)
+                     for thr in (0, 5, 10, 25, 50, 100, 150)}
+    agg["_n_off_events"] = len(all_off)
     # latency (giây) breakdown
     for key in ["encode", "tier1", "tier2", "tier3", "qwen", "combos", "total"]:
         agg[f"t_{key}"] = _mean([r["timings"].get(key) for r in rows if r.get("timings")])
@@ -333,16 +343,34 @@ def write_markdown(path, per_run, ks, meta):
         L.append("| " + " | ".join(row) + " |")
     L.append("")
 
-    # Bảng 2: thứ tự & sai lệch thời gian
-    L.append("## 2. Thứ tự & sai lệch thời gian")
-    hdr = ["Run", "MATE (s)", f"T@±{meta['tol']}f", "Kendall τ", "Spearman ρ"]
+    # Bảng 2: thứ tự & sai lệch thời gian + ĐỘ LỆCH FRAME
+    L.append("## 2. Thứ tự & sai lệch thời gian (trên query trúng video)")
+    hdr = ["Run", "MATE (s)", "MATE (frame)", "MaxOff (frame)", f"T@±{meta['tol']}f", "Kendall τ", "Spearman ρ"]
     L.append("| " + " | ".join(hdr) + " |")
     L.append("|" + "|".join(["---"] * len(hdr)) + "|")
     for rk in RUN_ORDER:
         if rk not in per_run:
             continue
         a = per_run[rk]
-        L.append("| " + " | ".join([rk, fmt(a.get("MATE_s")), fmt(a.get("T@tol")), fmt(a.get("Kendall")), fmt(a.get("Spearman"))]) + " |")
+        L.append("| " + " | ".join([rk, fmt(a.get("MATE_s")), fmt(a.get("MATE_frames"), 1),
+                                    fmt(a.get("MaxOff_frames"), 1), fmt(a.get("T@tol")),
+                                    fmt(a.get("Kendall")), fmt(a.get("Spearman"))]) + " |")
+    L.append("")
+    L.append("> **MaxOff (frame)** = lệch frame lớn nhất giữa các event → chính là **tolerance tối thiểu** để query được chấm đúng toàn bộ.")
+    L.append("")
+
+    # Bảng 2b: sweep ngưỡng lệch frame (để biết BTC cần cho phép bao nhiêu frame)
+    thrs = (0, 5, 10, 25, 50, 100, 150)
+    L.append("## 2b. Tỷ lệ EVENT đúng theo ngưỡng lệch frame (sweep)")
+    hdr = ["Run"] + [f"≤{t}f" for t in thrs] + ["#event"]
+    L.append("| " + " | ".join(hdr) + " |")
+    L.append("|" + "|".join(["---"] * len(hdr)) + "|")
+    for rk in RUN_ORDER:
+        if rk not in per_run:
+            continue
+        a = per_run[rk]
+        sw = a.get("_sweep", {})
+        L.append("| " + " | ".join([rk] + [fmt(sw.get(t)) for t in thrs] + [str(a.get("_n_off_events", 0))]) + " |")
     L.append("")
 
     # Bảng 3: hiệu năng vận hành (giây)
@@ -373,7 +401,7 @@ def write_markdown(path, per_run, ks, meta):
 
 def write_csv(path, per_run, ks):
     cols = ["run", "desc"] + [f"R@{k}" for k in ks] + ["MRR", "mAP", "VideoHit",
-            "MATE_s", "T@tol", "Kendall", "Spearman",
+            "MATE_s", "MATE_frames", "MaxOff_frames", "T@tol", "Kendall", "Spearman",
             "t_encode", "t_tier1", "t_tier2", "t_tier3", "t_qwen", "t_combos", "t_total", "QPS",
             "n_subs", "qwen_used", "n_gt"]
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -384,7 +412,8 @@ def write_csv(path, per_run, ks):
                 continue
             a = per_run[rk]
             row = [rk, RUNS[rk]["desc"]] + [a.get(f"R@{k}") for k in ks] + [
-                a.get("MRR"), a.get("mAP"), a.get("VideoHit"), a.get("MATE_s"), a.get("T@tol"),
+                a.get("MRR"), a.get("mAP"), a.get("VideoHit"), a.get("MATE_s"),
+                a.get("MATE_frames"), a.get("MaxOff_frames"), a.get("T@tol"),
                 a.get("Kendall"), a.get("Spearman"), a.get("t_encode"), a.get("t_tier1"),
                 a.get("t_tier2"), a.get("t_tier3"), a.get("t_qwen"), a.get("t_combos"),
                 a.get("t_total"), a.get("QPS"), a.get("n_subs"), a.get("qwen_used"), a.get("n_gt")]
@@ -435,7 +464,8 @@ def main():
                 continue
             rows.append(r)
             tag = f"rank={r.get('rank_correct')}" if r.get("has_gt") else "no-gt"
-            print(f"  q{i}: ok={r['ok']} {tag} t_total={r['timings'].get('total')}s mode={r.get('mode')}")
+            off = f" off={r.get('offsets')} max={r.get('max_off')}" if r.get("offsets") else ""
+            print(f"  q{i}: ok={r['ok']} {tag}{off} t_total={r['timings'].get('total')}s mode={r.get('mode')}")
         per_run[rk] = aggregate(rows, ks)
 
     meta = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "n_queries": len(queries),
