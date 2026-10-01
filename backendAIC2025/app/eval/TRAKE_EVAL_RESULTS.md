@@ -15,11 +15,11 @@
 | q3 | L27_V016 | 4 (thiên nhiên VN) | frames 86, 146, 283, 1197 |
 
 ## Kết quả từng query
-| Query | Run1 greedy | Run2 DP | Run3 +MM | Ghi chú |
-|---|---|---|---|---|
-| q1 L26_V069 | ✗ (video miss) | ✗ (video miss) | ✗ | E1 không được embedding khớp |
-| q2 L22_V010 | ✗ (video miss) | ✗ (video miss) | ✗ | E2/E3 khớp sai cảnh |
-| q3 L27_V016 | **rank 1** | **rank 1** | **rank 1** | MATE 0.14 s, T@±30f=1.0 |
+| Query | Run1 greedy | Run2 DP | Run3 +MM | Lệch frame/event | Ghi chú |
+|---|---|---|---|---|---|
+| q1 L26_V069 | ✗ (video miss) | ✗ (video miss) | ✗ | – | E1 không được embedding khớp |
+| q2 L22_V010 | ✗ (video miss) | ✗ (video miss) | ✗ | – | E2/E3 khớp sai cảnh |
+| q3 L27_V016 | **rank 1** | **rank 1** | **rank 1** | **[0, 14, 0, 0]** | 3/4 event lệch **0 frame**, E2 lệch **14 frame** |
 
 ## Bảng 1 — Xếp hạng & độ phủ (3 query)
 | Run | R@1 | R@5 | R@10 | R@100 | MRR | mAP | VideoHit |
@@ -28,12 +28,21 @@
 | Run2 DP | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 |
 | Run3 +MM | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 | 0.333 |
 
-## Bảng 2 — Thứ tự & sai lệch thời gian (trên query trúng video)
-| Run | MATE (s) | T@±30f | Kendall τ | Spearman ρ |
-|---|---|---|---|---|
-| Run1 | 0.140 | 1.000 | 1.000 | 1.000 |
-| Run2 | 0.140 | 1.000 | 1.000 | 1.000 |
-| Run3 | 0.140 | 1.000 | 1.000 | 1.000 |
+## Bảng 2 — Sai lệch thời gian & ĐỘ LỆCH FRAME (trên query trúng video)
+| Run | MATE (s) | MATE (frame) | MaxOff (frame) | T@±30f | Kendall τ | Spearman ρ |
+|---|---|---|---|---|---|---|
+| Run1 | 0.140 | 3.5 | 14 | 1.000 | 1.000 | 1.000 |
+| Run2 | 0.140 | 3.5 | 14 | 1.000 | 1.000 | 1.000 |
+| Run3 | 0.140 | 3.5 | 14 | 1.000 | 1.000 | 1.000 |
+
+- **MaxOff = 14 frame** = lệch lớn nhất giữa các event ⇒ **tolerance tối thiểu để query được chấm đúng toàn bộ**. Với 25fps ≈ **0.56 s**.
+
+## Bảng 2b — Tỷ lệ EVENT đúng theo ngưỡng lệch frame (sweep, trên 4 event của q3)
+| ≤0f | ≤5f | ≤10f | ≤25f | ≤50f | ≤100f |
+|---|---|---|---|---|---|
+| 0.75 | 0.75 | 0.75 | 1.00 | 1.00 | 1.00 |
+
+→ **3/4 event khớp CHÍNH XÁC (0 frame)**; chỉ 1 event cần tới ~14 frame. Nếu BTC cho phép **≥ ~15–25 frame (~0.6–1.0 s @25fps)** thì cả 4 event của q3 đều được tính đúng. (Đây là mốc tham khảo từ 1 query; cần nhiều query hơn để chốt ngưỡng tin cậy.)
 
 ## Bảng 3 — Latency breakdown (giây/query, CPU local)
 | Run | encode | tier1 | tier2 | combos | total | QPS |
@@ -57,7 +66,8 @@
 ## Phân tích (cho Results/Limitations)
 1. **Pipeline được kiểm chứng end-to-end**: với query có sự kiện trực quan rõ (q3), TRAKE trả **đúng video, đúng thứ tự, MATE 0.14 s** (~3.5 frame). Tức Tầng 1 DP + Tầng 2 định vị + sinh tổ hợp hoạt động chính xác.
 2. **Trần hiệu năng nằm ở recall embedding Tầng 1** (đúng như §3.3 tài liệu): DP yêu cầu **mọi** sự kiện trực quan phải có mặt trong top-M. Chỉ cần **một** sự kiện trừu tượng/hành động khó (E1 nấu ăn, E2/E3 mô tả người) không được embedding khớp → **mất cả video**. Đây là *bằng chứng định lượng* cho luận điểm giới hạn của phương pháp.
-3. **Run1 = Run2 = Run3 trên tập này** vì: (a) tập chỉ 3 query, q3 dễ nên cả greedy lẫn DP đều trúng; (b) 3 query **không có gợi ý OCR/ASR** nên Run3 (soft-boost/injection) không có gì để kích hoạt ⇒ bằng Run2. Nới `top_m=1000, top_videos=15` **không** cứu được q1/q2 (video vẫn bị loại do E1 miss hoàn toàn / frame khớp sai).
+3. **Accuracy Run1 = Run2 = Run3 trên tập này** vì: (a) tập chỉ 3 query, q3 dễ nên cả greedy lẫn DP đều trúng; (b) chỉ q3 có 1 gợi ý OCR ("Cánh gà lắc" ở E3) nhưng E3 vốn đã khớp **0 frame** nên OCR không đổi được kết quả. OCR injection **có** hoạt động: Run3 sinh **55.7** combo/query so với 35 của Run2 (bơm thêm ứng viên OCR vào tập), chỉ là không làm q3 tốt hơn vì đã tối ưu. Nới `top_m=1000, top_videos=15` **không** cứu được q1/q2 (video vẫn bị loại do E1 miss hoàn toàn / frame khớp sai).
+4. **Độ lệch frame thực tế rất nhỏ khi đã trúng**: q3 có 3/4 event **chính xác tuyệt đối (0 frame)**, event còn lại 14 frame — tức một khi Tầng 1/2 chọn đúng vùng, định vị keyframe đã rất sát. Điều này củng cố luận điểm: nút thắt là **recall Tầng 1**, không phải độ chính xác định vị.
 
 ## Đề xuất để bảng số "biết nói" (nên làm trước khi chốt paper)
 - **Tăng số query GT** (≥20–30) đa dạng độ khó — R@K/MRR mới ổn định thống kê.
