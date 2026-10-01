@@ -30,26 +30,33 @@ from ..services import trake_service
 # qwen (Run6) chỉ chạy khi TRAKE_QWEN_RERANK_ENABLED + có GPU/model; nếu không -> tự về thuật toán.
 # --------------------------------------------------------------------------- #
 RUNS = {
-    "run1_greedy":  {"desc": "Baseline: ANN/event + ghép tham lam (No DP, No Refine)",
-                     "greedy": True, "use_ocr_asr": False},
-    "run2_dp":      {"desc": "Tier1+2 DP (keyframe-only, no multimodal)",
+    # B..G của bảng ablation reviewer đề xuất (A = Event Recall, báo riêng ở mục 0).
+    "run1_greedy":  {"desc": "B: ANN/event + ghép tham lam (No DP, No Refine)",
+                     "greedy": True, "use_ocr": False, "use_asr": False},
+    "run2_dp":      {"desc": "C: Tier1+2 DP (visual-only)",
                      "cfg": {"TRAKE_TIER3_ENABLED": False, "TRAKE_QWEN_RERANK_ENABLED": False},
-                     "use_ocr_asr": False},
-    "run3_mm":      {"desc": "+Multimodal (OCR/ASR soft-boost + injection)",
+                     "use_ocr": False, "use_asr": False},
+    "run3a_ocr":    {"desc": "D: DP + OCR (chỉ OCR)",
                      "cfg": {"TRAKE_TIER3_ENABLED": False, "TRAKE_QWEN_RERANK_ENABLED": False},
-                     "use_ocr_asr": True},
+                     "use_ocr": True, "use_asr": False},
+    "run3b_asr":    {"desc": "E: DP + ASR (chỉ ASR)",
+                     "cfg": {"TRAKE_TIER3_ENABLED": False, "TRAKE_QWEN_RERANK_ENABLED": False},
+                     "use_ocr": False, "use_asr": True},
+    "run3_mm":      {"desc": "F: DP + OCR + ASR (multimodal)",
+                     "cfg": {"TRAKE_TIER3_ENABLED": False, "TRAKE_QWEN_RERANK_ENABLED": False},
+                     "use_ocr": True, "use_asr": True},
     "run4_tier3_argmax": {"desc": "+Tier3 decode + rerank ARGMAX",
                      "cfg": {"TRAKE_TIER3_ENABLED": True, "TRAKE_RERANK_MODE": "argmax",
                              "TRAKE_QWEN_RERANK_ENABLED": False},
-                     "use_ocr_asr": True},
-    "run5_tier3_peak": {"desc": "+Tier3 decode + rerank PEAK prominence",
+                     "use_ocr": True, "use_asr": True},
+    "run5_tier3_peak": {"desc": "G: +Tier3 decode + rerank PEAK prominence",
                      "cfg": {"TRAKE_TIER3_ENABLED": True, "TRAKE_RERANK_MODE": "peak",
                              "TRAKE_QWEN_RERANK_ENABLED": False},
-                     "use_ocr_asr": True},
+                     "use_ocr": True, "use_asr": True},
     "run6_full":    {"desc": "Full TRAKE: Tier3 peak + Qwen tie-break có điều kiện",
                      "cfg": {"TRAKE_TIER3_ENABLED": True, "TRAKE_RERANK_MODE": "peak",
                              "TRAKE_QWEN_RERANK_ENABLED": True},
-                     "use_ocr_asr": True},
+                     "use_ocr": True, "use_asr": True},
 }
 RUN_ORDER = list(RUNS.keys())
 DEFAULT_KS = [1, 5, 10, 100]
@@ -139,6 +146,46 @@ def combo_correct(pred_frames, los, his, tol):
 
 
 # --------------------------------------------------------------------------- #
+# LEVEL 1 — Event Recall: correct event-frame có nằm trong candidate set (ANN top-K) không?
+# Độc lập với DP/greedy; đo thẳng bottleneck "event-level candidate recall".
+# --------------------------------------------------------------------------- #
+def compute_event_recall(queries, engine, ks, tol):
+    maxk = max(ks)
+    per_event = {k: [] for k in ks}   # 0/1 cho MỖI event (có visual vec)
+    per_query = {k: [] for k in ks}   # 0/1 cho MỖI query (đủ CẢ chuỗi event)
+    for q in queries:
+        gt = q.get("gt")
+        if not gt:
+            continue
+        los, his, _ = gt_bounds(gt)
+        gt_vid = norm_vid(gt.get("video_id"))
+        events = [str(e or "") for e in q.get("events", [])]
+        model = q.get("model") or "beit3"
+        etext = translate_events(events, bool(q.get("language", False)))
+        vecs = trake_service.encode_events(etext, engine, model)
+        qhit = {k: [] for k in ks}
+        for j, v in enumerate(vecs):
+            if v is None or j >= len(los):
+                continue
+            hits = trake_service._qdrant_query(engine, model, v, maxk)
+            ok_at = None
+            for i, h in enumerate(hits):
+                if (norm_vid(h.get("video_id")) == gt_vid and h.get("frame_id") is not None
+                        and _dist_to_band(h["frame_id"], los[j], his[j]) <= tol):
+                    ok_at = i + 1
+                    break
+            for k in ks:
+                hit = int(ok_at is not None and ok_at <= k)
+                per_event[k].append(hit)
+                qhit[k].append(hit)
+        for k in ks:
+            per_query[k].append(int(bool(qhit[k]) and all(qhit[k])))
+    event = {k: _mean(per_event[k]) for k in ks}
+    cand = {k: _mean(per_query[k]) for k in ks}
+    return event, cand, len(per_event[ks[0]])
+
+
+# --------------------------------------------------------------------------- #
 # Greedy baseline (Run 1): ANN/event, chọn video được nhiều event nhất, top-1/event, KHÔNG ràng buộc thứ tự.
 # --------------------------------------------------------------------------- #
 def run_greedy(events_text, engine, model, top_m, max_combos):
@@ -209,9 +256,8 @@ def eval_query(q, run_key, engine, ks, tol):
     lang = bool(q.get("language", False))
     model = q.get("model") or "beit3"
     events_text = translate_events(events, lang)
-    use_mm = spec.get("use_ocr_asr", False)
-    ev_ocr = q.get("events_ocr") if use_mm else None
-    ev_asr = q.get("events_asr") if use_mm else None
+    ev_ocr = q.get("events_ocr") if spec.get("use_ocr") else None
+    ev_asr = q.get("events_asr") if spec.get("use_asr") else None
 
     top_m = Config.TRAKE_TOP_M
     max_combos = Config.TRAKE_MAX_COMBOS
@@ -330,8 +376,22 @@ def write_markdown(path, per_run, ks, meta):
         L.append("  > ⚠️ Không có VIDEO_ROOT/video -> Run4/5/6 tự về case2 (không tinh chỉnh tầng 3); số accuracy của chúng sẽ ~ Run3.")
     L.append("")
 
+    # Mục 0: Event Recall (Level 1)
+    er = meta.get("event_recall")
+    if er and er.get("ks"):
+        L.append("## 0. Event Recall (Level 1) — correct event-frame có trong candidate set?")
+        L.append(f"(ANN top-K mỗi event, band ±{meta['tol']}f quanh GT; độc lập DP/greedy; #event={er['n']})")
+        hdr = ["K"] + [f"@{k}" for k in er["ks"]]
+        L.append("| " + " | ".join(hdr) + " |")
+        L.append("|" + "|".join(["---"] * len(hdr)) + "|")
+        L.append("| EventRecall (per-event) | " + " | ".join(fmt(er["event"].get(k)) for k in er["ks"]) + " |")
+        L.append("| CandidateRecall (đủ CẢ chuỗi) | " + " | ".join(fmt(er["cand"].get(k)) for k in er["ks"]) + " |")
+        L.append("")
+        L.append("> **CandidateRecall** là trần trên của End-to-End: DP chỉ ghép được chuỗi khi MỌI event có ứng viên đúng. Đây là bottleneck chính của phương pháp.")
+        L.append("")
+
     # Bảng 1: xếp hạng & độ phủ
-    L.append("## 1. Xếp hạng & độ phủ tổ hợp")
+    L.append("## 1. Xếp hạng & độ phủ tổ hợp (End-to-End, Level 3)")
     hdr = ["Run", "mô tả"] + [f"R@{k}" for k in ks] + ["MRR", "mAP", "VideoHit"]
     L.append("| " + " | ".join(hdr) + " |")
     L.append("|" + "|".join(["---"] * len(hdr)) + "|")
@@ -428,6 +488,7 @@ def main():
     ap.add_argument("--runs", default="all", help="'all' hoặc danh sách ngăn cách dấu phẩy, vd run2_dp,run5_tier3_peak")
     ap.add_argument("--k", default="1,5,10,100", help="Các mốc K cho Recall@K")
     ap.add_argument("--tol-frames", type=int, default=25, help="Cửa sổ dung sai khung hình cho 'đúng'")
+    ap.add_argument("--event-recall-k", default="10,50,100,500,1000", help="Các mốc K cho Event Recall (Level 1)")
     args = ap.parse_args()
 
     ks = [int(x) for x in args.k.split(",") if x.strip()]
@@ -452,6 +513,13 @@ def main():
     tier3_ready, _ = trake_service.tier3_globally_ready()
     qwen_ready, _ = trake_service.qwen_rerank_ready()
 
+    # LEVEL 1 — Event Recall (độc lập với run config)
+    er_ks = [int(x) for x in args.event_recall_k.split(",") if x.strip()]
+    print("\n[level1] Event Recall @", er_ks)
+    ev_rec, cand_rec, n_ev = compute_event_recall(queries, engine, er_ks, args.tol_frames)
+    print("  EventRecall:", {k: round(v, 3) if v is not None else None for k, v in ev_rec.items()})
+    print("  CandidateRecall:", {k: round(v, 3) if v is not None else None for k, v in cand_rec.items()})
+
     per_run = {}
     for rk in run_keys:
         print(f"\n[run] {rk} — {RUNS[rk]['desc']}")
@@ -470,7 +538,8 @@ def main():
 
     meta = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "n_queries": len(queries),
             "n_gt": sum(1 for q in queries if q.get("gt")), "tol": args.tol_frames,
-            "tier3_ready": tier3_ready, "qwen_ready": qwen_ready}
+            "tier3_ready": tier3_ready, "qwen_ready": qwen_ready,
+            "event_recall": {"ks": er_ks, "event": ev_rec, "cand": cand_rec, "n": n_ev}}
     md, csvp = os.path.join(args.out, "eval_results.md"), os.path.join(args.out, "eval_results.csv")
     write_markdown(md, per_run, ks, meta)
     write_csv(csvp, per_run, ks)
